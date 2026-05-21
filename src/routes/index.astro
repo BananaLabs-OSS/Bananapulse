@@ -1,0 +1,230 @@
+---
+// bananapulse/routes/index.astro — the status overview page.
+//
+// Injected by the integration at `${mountPath}` (default /status).
+// Pure-static: this Astro file is statically rendered at build time. The
+// first paint is a "loading" skeleton; a client <script> then fetches
+// the configured upstream every 30s from the browser and patches the DOM.
+//
+// No server-side fetch happens here. No SSR. No locals.runtime.env.
+// Works on any static host (CF Pages, GH Pages, Netlify, S3, nginx).
+
+import config from 'virtual:bananapulse/config';
+import baseCss from '../styles/base.css?url';
+import defaultThemeCss from '../styles/default-theme.css?url';
+import OverallBanner from '../components/OverallBanner.astro';
+// AlertBanner and StatusNode are rendered client-side by the inline script,
+// not imported here. The script ships its own minimal HTML templates so
+// the renderer is self-contained at runtime and the components stay
+// reusable for SSR contexts (e.g. the build-time "active incidents" block,
+// which uses IncidentCard below).
+import IncidentCard from '../components/IncidentCard.astro';
+import { loadIncidents } from '../lib/incidents.js';
+
+// Build-time read for the "active incidents" block. The status tree
+// itself is hydrated client-side. Absolute path is baked in by the
+// integration's config:setup hook — see src/integration.ts.
+const active = loadIncidents(config.absIncidentsPath).filter(
+  (i) => !i.resolvedAt,
+);
+
+const mount = config.mountPath;
+const feedHref = mount === '/' ? '/incidents.xml' : `${mount}/incidents.xml`;
+const historyHref = mount === '/' ? '/incidents' : `${mount}/incidents`;
+const useDefaultTheme = !config.themeCssPath;
+
+// Build the theme-remap CSS block. If the consumer mapped Bananapulse's
+// vars to their own, emit `:root { --accent: var(--brand-blue); ... }`
+// so Bananapulse's components naturally pick up the consumer's tokens.
+const themeRemap = Object.entries(config.themeCssVarMap ?? {})
+  .map(([from, to]) => `  ${from}: var(${to});`)
+  .join('\n');
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{config.name} status</title>
+    <meta
+      name="description"
+      content={`${config.name} live system status, incidents, and capacity.`}
+    />
+    <link rel="alternate" type="application/atom+xml"
+          title={`${config.name} incidents`} href={feedHref} />
+    <link rel="stylesheet" href={baseCss} />
+    {useDefaultTheme && <link rel="stylesheet" href={defaultThemeCss} />}
+    {themeRemap && (
+      <style set:html={`:root {\n${themeRemap}\n}`}></style>
+    )}
+  </head>
+  <body>
+    <main>
+      <div class="kit-header">
+        <div>
+          <a href={mount} style="color: inherit"><strong>{config.name}</strong> status</a>
+        </div>
+        <a class="domain" href={`https://${config.domain}`}>{config.domain}</a>
+      </div>
+
+      <div id="bp-overall">
+        <OverallBanner overall="operational" siteName={config.name} />
+      </div>
+      <div id="bp-banner"></div>
+
+      {active.length > 0 && (
+        <>
+          <h2>Active incidents</h2>
+          <div>
+            {active.map((i) => <IncidentCard incident={i} />)}
+          </div>
+        </>
+      )}
+
+      <h2>Systems</h2>
+      <section class="tree" id="bp-tree">
+        <p class="updated">Loading status…</p>
+      </section>
+
+      <p class="updated">
+        Updated <time datetime="" id="bp-updated">—</time>
+        · <a href={historyHref}>incident history</a>
+        · <a href={feedHref}>Atom feed</a>
+      </p>
+    </main>
+    <footer class="kit-foot">
+      Powered by <a href="https://github.com/BananaLabs-OSS/bananapulse">Bananapulse</a>
+    </footer>
+
+    <script type="module" define:vars={{ sources: config.sources, siteName: config.name }}>
+      // Client-side poller. Fetches the consumer's upstream directly
+      // from the browser every 30s. CORS on the upstream is the
+      // consumer's responsibility (see DEPLOY.md).
+      const POLL_MS = 30_000;
+
+      const LABEL = {
+        operational: 'Operational',
+        degraded: 'Degraded',
+        major: 'Major outage',
+        maintenance: 'Maintenance',
+      };
+      const HEADLINE = {
+        operational: 'All systems operational',
+        degraded: 'Some systems are experiencing issues',
+        major: 'Major outage in progress',
+        maintenance: 'Scheduled maintenance underway',
+      };
+
+      function mapDependencyHealth(raw) {
+        if (raw === 'reachable' || raw === 'ok' || raw === 'healthy') return 'operational';
+        if (raw === 'degraded' || raw === 'slow') return 'degraded';
+        if (raw === 'unreachable' || raw === 'down' || raw === 'error') return 'major';
+        return 'degraded';
+      }
+      function mapCapacityHealth(used, full) {
+        if (full) return 'degraded';
+        if (used >= 90) return 'degraded';
+        return 'operational';
+      }
+      const RANK = { maintenance: 0, operational: 1, degraded: 2, major: 3 };
+      function worse(a, b) { return RANK[a] >= RANK[b] ? a : b; }
+      function rollup(subs) {
+        let h = 'maintenance';
+        for (const s of subs) h = worse(h, s.status);
+        if (h === 'maintenance' && subs.some((s) => s.status !== 'maintenance')) return 'operational';
+        return h;
+      }
+
+      function mapQueueStatus(raw) {
+        const cap = mapCapacityHealth(Math.max(raw.used_cpu, raw.used_memory), raw.capacity_full);
+        const subsystems = [
+          {
+            name: 'Server capacity',
+            status: cap,
+            message: raw.capacity_full
+              ? `Capacity full — ${raw.queue_length} in queue`
+              : `${raw.active_servers}/${raw.max_servers} units active`,
+            meter: { label: 'CPU', value: Math.round(raw.used_cpu), max: 100 },
+          },
+          {
+            name: 'Memory',
+            status: raw.used_memory >= 90 ? 'degraded' : 'operational',
+            meter: { label: 'RAM', value: Math.round(raw.used_memory), max: 100 },
+          },
+          { name: 'Provisioner', status: mapDependencyHealth(raw.provisioner_status) },
+          { name: 'Payments', status: mapDependencyHealth(raw.payments_status) },
+          { name: 'Email delivery', status: mapDependencyHealth(raw.email_status) },
+        ];
+        const overall = rollup(subsystems);
+        const banner = raw.capacity_full && raw.estimated_next_slot
+          ? { tone: 'degraded', text: `Capacity full — next slot estimated ${new Date(raw.estimated_next_slot).toUTCString()}` }
+          : null;
+        return { overall, subsystems, updatedAt: new Date().toISOString(), banner };
+      }
+      function unreachable() {
+        return {
+          overall: 'major',
+          subsystems: [{ name: siteName, status: 'major', message: 'Upstream status endpoint unreachable' }],
+          updatedAt: new Date().toISOString(),
+          banner: { tone: 'major', text: 'Status data unavailable. Check back in 30 seconds.' },
+        };
+      }
+
+      async function fetchStatus() {
+        const src = sources && sources[0];
+        if (!src) return unreachable();
+        try {
+          const r = await fetch(src.url, { headers: { Accept: 'application/json' } });
+          if (!r.ok) return unreachable();
+          const raw = await r.json();
+          if (src.type === 'queue-status') return mapQueueStatus(raw);
+          return unreachable();
+        } catch {
+          return unreachable();
+        }
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+      function meterHtml(m) {
+        if (!m) return '';
+        const pct = Math.max(0, Math.min(100, (m.value / Math.max(m.max, 1)) * 100));
+        const tone = pct >= 90 ? 'degraded' : 'operational';
+        return `<div class="meter"><div class="meter-row"><span class="meter-label">${escapeHtml(m.label)}</span><span class="meter-val">${Math.round(m.value)}%</span></div><div class="meter-bar"><div class="meter-fill tone-${tone}" style="width:${pct}%"></div></div></div>`;
+      }
+      function rowHtml(s) {
+        const msg = s.message ? `<p class="row-msg">${escapeHtml(s.message)}</p>` : '';
+        return `<div class="row tone-${s.status}"><div class="row-main"><div class="row-head"><span class="dot ${s.status}"></span><span class="row-name">${escapeHtml(s.name)}</span></div><span class="row-status tone-${s.status}">${LABEL[s.status]}</span></div>${msg}${meterHtml(s.meter)}</div>`;
+      }
+      function overallHtml(overall, name) {
+        return `<section class="overall tone-${overall}"><div class="overall-row"><span class="dot ${overall}"></span><h1>${HEADLINE[overall]}</h1></div><p class="overall-sub">${escapeHtml(name)} status</p></section>`;
+      }
+      function bannerHtml(b) {
+        if (!b) return '';
+        return `<aside class="alert tone-${b.tone}"><span class="dot ${b.tone}"></span><span>${escapeHtml(b.text)}</span></aside>`;
+      }
+
+      function render(status) {
+        const overall = document.getElementById('bp-overall');
+        const banner = document.getElementById('bp-banner');
+        const tree = document.getElementById('bp-tree');
+        const updated = document.getElementById('bp-updated');
+        if (overall) overall.innerHTML = overallHtml(status.overall, siteName);
+        if (banner) banner.innerHTML = bannerHtml(status.banner);
+        if (tree) tree.innerHTML = status.subsystems.map(rowHtml).join('');
+        if (updated && status.updatedAt) {
+          updated.setAttribute('datetime', status.updatedAt);
+          updated.textContent = new Date(status.updatedAt).toUTCString();
+        }
+      }
+
+      async function poll() {
+        const status = await fetchStatus();
+        render(status);
+      }
+      poll();
+      setInterval(poll, POLL_MS);
+    </script>
+  </body>
+</html>

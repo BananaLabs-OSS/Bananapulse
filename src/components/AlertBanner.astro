@@ -1,0 +1,30 @@
+---
+import type { Health } from '../lib/canonical.js';
+
+interface Props {
+  tone: Health;
+  text: string;
+}
+const { tone, text } = Astro.props;
+---
+<aside class={`alert tone-${tone}`}>
+  <span class={`dot ${tone}`}></span>
+  <span>{text}</span>
+</aside>
+
+<style>
+  .alert {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    font-size: 14px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    background: var(--section-alt);
+  }
+  .alert.tone-degraded    { background: var(--yd); border-color: var(--yg); }
+  .alert.tone-major       { background: var(--rd); border-color: var(--rg); }
+  .alert.tone-maintenance { background: var(--accent-bg); border-color: var(--accent-shadow); }
+</style>

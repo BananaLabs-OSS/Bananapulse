@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.astro/
+.wrangler/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# dev/ standalone preview artefacts
+dev/dist/
+dev/.astro/
+dev/node_modules/

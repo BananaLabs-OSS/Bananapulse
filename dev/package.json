@@ -1,0 +1,16 @@
+{
+  "name": "bananapulse-dev",
+  "type": "module",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Standalone Astro site that hosts Bananapulse for local development and visual preview.",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "astro": "^5.7.0",
+    "bananapulse": "file:.."
+  }
+}

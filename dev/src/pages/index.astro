@@ -1,0 +1,44 @@
+---
+// dev/src/pages/index.astro — landing page for the standalone preview.
+// The status page lives at /status (injected by the integration).
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Bananapulse dev preview</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 640px; margin: 64px auto; padding: 0 24px; line-height: 1.6; color: #ededed; background: #0e0e10; }
+      a { color: #5b8def; }
+      code { background: #17171a; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+      h1 { margin-bottom: 16px; }
+      h2 { margin-top: 32px; font-size: 18px; }
+    </style>
+  </head>
+  <body>
+    <h1>Bananapulse dev preview</h1>
+    <p>
+      The integration mounts the status page at <a href="/status">/status</a>
+      and the incident history at <a href="/status/incidents">/status/incidents</a>.
+      The Atom feed is materialised at build time to
+      <code>dist/status/incidents.xml</code>.
+    </p>
+
+    <h2>Preview routes</h2>
+    <ul>
+      <li><a href="/status">/status</a> — overview (live client poll)</li>
+      <li><a href="/status/incidents">/status/incidents</a> — history</li>
+    </ul>
+
+    <h2>What you're looking at</h2>
+    <p>
+      This site is a thin shell around <code>../../src/integration.ts</code>.
+      Edits to anything in <code>../../src/</code> hot-reload here. The
+      stub upstream URL in <code>astro.config.mjs</code> is unreachable
+      on purpose — Bananapulse renders that as a "major outage" tile,
+      which is a useful UI state to design against. Point it at a real
+      JSON endpoint to see the green/yellow/red paths.
+    </p>
+  </body>
+</html>

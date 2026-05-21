@@ -1,0 +1,70 @@
+/* bananapulse — minimal global. Theme files layer color tokens on top. */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--f, system-ui, sans-serif);
+  background: var(--bg, #161618);
+  color: var(--tx, #f0f0f0);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.6;
+  min-height: 100vh;
+}
+a { color: var(--accent, #3b82f6); text-decoration: none; transition: color .15s; }
+a:hover { color: var(--accent-hover, #60a5fa); }
+img { max-width: 100%; display: block; }
+::selection { background: var(--accent, #3b82f6); color: #fff; }
+
+main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 56px 24px 96px;
+}
+@media (max-width: 640px) { main { padding: 32px 16px 64px; } }
+
+h1 { font-size: 28px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 4px; }
+h2 { font-size: 18px; font-weight: 700; margin: 32px 0 12px; }
+p { color: var(--muted, rgba(255,255,255,.65)); }
+
+.kit-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.kit-header .domain { color: var(--muted); font-size: 14px; }
+
+.updated {
+  color: var(--dim, rgba(255,255,255,.4));
+  font-size: 13px;
+  margin-top: 24px;
+}
+
+/* Status-tone helper classes. Components read these; themes can override. */
+.tone-operational { color: var(--g); }
+.tone-degraded    { color: var(--y); }
+.tone-major       { color: var(--r); }
+.tone-maintenance { color: var(--accent); }
+
+.dot {
+  display: inline-block;
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+.dot.operational { background: var(--g); box-shadow: 0 0 0 4px var(--gg); }
+.dot.degraded    { background: var(--y); box-shadow: 0 0 0 4px var(--yg); }
+.dot.major       { background: var(--r); box-shadow: 0 0 0 4px var(--rg); }
+.dot.maintenance { background: var(--accent); box-shadow: 0 0 0 4px var(--accent-bg); }
+
+footer.kit-foot {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px;
+  color: var(--dim);
+  font-size: 12px;
+  text-align: center;
+}

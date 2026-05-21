@@ -1,0 +1,59 @@
+---
+// bananapulse/routes/incidents.astro — incident history page.
+//
+// Injected by the integration at `${mountPath}/incidents`. Statically
+// rendered at build time — the incidents.json file is read from the
+// consumer's project root. No client-side fetching here; incidents are
+// committed-and-pushed, never live data.
+
+import config from 'virtual:bananapulse/config';
+import baseCss from '../styles/base.css?url';
+import defaultThemeCss from '../styles/default-theme.css?url';
+import IncidentCard from '../components/IncidentCard.astro';
+import { listIncidents } from '../lib/incidents.js';
+
+const incidents = listIncidents(config.absIncidentsPath);
+
+const mount = config.mountPath;
+const feedHref = mount === '/' ? '/incidents.xml' : `${mount}/incidents.xml`;
+const useDefaultTheme = !config.themeCssPath;
+const themeRemap = Object.entries(config.themeCssVarMap ?? {})
+  .map(([from, to]) => `  ${from}: var(${to});`)
+  .join('\n');
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Incidents — {config.name} status</title>
+    <link rel="alternate" type="application/atom+xml"
+          title={`${config.name} incidents`} href={feedHref} />
+    <link rel="stylesheet" href={baseCss} />
+    {useDefaultTheme && <link rel="stylesheet" href={defaultThemeCss} />}
+    {themeRemap && (
+      <style set:html={`:root {\n${themeRemap}\n}`}></style>
+    )}
+  </head>
+  <body>
+    <main>
+      <div class="kit-header">
+        <div><a href={mount} style="color: inherit"><strong>{config.name}</strong> status</a></div>
+        <a class="domain" href={mount}>back to overview</a>
+      </div>
+      <h1>Incident history</h1>
+      <p>All recorded incidents, newest first. <a href={feedHref}>Atom feed</a>.</p>
+
+      {incidents.length === 0 ? (
+        <p class="updated" style="margin-top: 32px">No incidents recorded yet.</p>
+      ) : (
+        <div style="margin-top: 24px">
+          {incidents.map((i) => <IncidentCard incident={i} />)}
+        </div>
+      )}
+    </main>
+    <footer class="kit-foot">
+      Powered by <a href="https://github.com/BananaLabs-OSS/bananapulse">Bananapulse</a>
+    </footer>
+  </body>
+</html>

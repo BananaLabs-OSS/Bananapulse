@@ -1,0 +1,49 @@
+---
+import type { Incident } from '../lib/canonical.js';
+
+interface Props { incident: Incident; }
+const { incident } = Astro.props;
+
+const LABEL: Record<Incident['severity'], string> = {
+  degraded: 'Degraded',
+  major: 'Major outage',
+  maintenance: 'Maintenance',
+};
+const started = new Date(incident.startedAt);
+const resolved = incident.resolvedAt ? new Date(incident.resolvedAt) : null;
+---
+<article id={incident.id} class={`incident tone-${incident.severity}`}>
+  <header class="incident-head">
+    <span class={`dot ${incident.severity}`}></span>
+    <h2>{incident.title}</h2>
+    <span class={`badge tone-${incident.severity}`}>{LABEL[incident.severity]}</span>
+  </header>
+  <p class="incident-meta">
+    Started <time datetime={incident.startedAt}>{started.toUTCString()}</time>
+    {resolved && <> · resolved <time datetime={incident.resolvedAt}>{resolved.toUTCString()}</time></>}
+    {!resolved && <span class="ongoing"> · ongoing</span>}
+  </p>
+  <div class="incident-body" set:html={incident.body}></div>
+  <p class="incident-link"><a href={`#${incident.id}`}>permalink</a></p>
+</article>
+
+<style>
+  .incident {
+    padding: 20px;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    margin-bottom: 16px;
+  }
+  .incident-head { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; }
+  .incident-head h2 { margin: 0; font-size: 17px; flex: 1; }
+  .badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; }
+  .badge.tone-degraded    { background: var(--yd); }
+  .badge.tone-major       { background: var(--rd); }
+  .badge.tone-maintenance { background: var(--accent-bg); }
+  .incident-meta { font-size: 12px; color: var(--dim); margin-bottom: 12px; }
+  .ongoing { color: var(--y); }
+  .incident-body { color: var(--tx); font-size: 14px; }
+  .incident-body p { margin-bottom: 8px; }
+  .incident-link { margin-top: 12px; font-size: 12px; }
+</style>

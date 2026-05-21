@@ -1,0 +1,29 @@
+---
+interface Props {
+  label: string;
+  value: number;
+  max: number;
+}
+const { label, value, max } = Astro.props;
+const pct = Math.max(0, Math.min(100, (value / Math.max(max, 1)) * 100));
+const tone = pct >= 90 ? 'degraded' : 'operational';
+---
+<div class="meter">
+  <div class="meter-row">
+    <span class="meter-label">{label}</span>
+    <span class="meter-val">{Math.round(value)}%</span>
+  </div>
+  <div class="meter-bar">
+    <div class={`meter-fill tone-${tone}`} style={`width: ${pct}%`}></div>
+  </div>
+</div>
+
+<style>
+  .meter { margin-top: 8px; }
+  .meter-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .meter-val { font-variant-numeric: tabular-nums; }
+  .meter-bar { height: 6px; background: var(--section-alt); border-radius: 999px; overflow: hidden; }
+  .meter-fill { height: 100%; border-radius: 999px; transition: width .3s ease; }
+  .meter-fill.tone-operational { background: var(--g); }
+  .meter-fill.tone-degraded    { background: var(--y); }
+</style>

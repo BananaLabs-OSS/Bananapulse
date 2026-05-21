@@ -1,0 +1,21 @@
+---
+// Recursive tree renderer. v0.1 typically has a flat list, but the
+// component supports nesting so deeper hierarchies "just work" once a
+// consumer adds children to their canonical mapping.
+
+import SubsystemRow from './SubsystemRow.astro';
+import type { Subsystem } from '../lib/canonical.js';
+
+interface Props { node: Subsystem; depth?: number; }
+const { node, depth = 0 } = Astro.props;
+---
+<SubsystemRow node={node} />
+{node.children && node.children.length > 0 && (
+  <div class="children" style={`padding-left: ${(depth + 1) * 16}px`}>
+    {node.children.map((c) => <Astro.self node={c} depth={depth + 1} />)}
+  </div>
+)}
+
+<style>
+  .children { border-left: 1px solid var(--border); margin-left: 12px; }
+</style>

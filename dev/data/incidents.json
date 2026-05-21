@@ -1,0 +1,10 @@
+[
+  {
+    "id": "2026-05-21-dev-sample",
+    "title": "Sample incident — Bananapulse dev preview",
+    "startedAt": "2026-05-21T15:00:00Z",
+    "resolvedAt": "2026-05-21T15:42:00Z",
+    "severity": "degraded",
+    "body": "<p>This is a sample incident used by the standalone dev preview. Edit <code>dev/data/incidents.json</code> to test how the page renders incident history + Atom feed entries.</p>"
+  }
+]

@@ -1,0 +1,43 @@
+---
+import CapacityMeter from './CapacityMeter.astro';
+import type { Subsystem } from '../lib/canonical.js';
+
+interface Props { node: Subsystem; }
+const { node } = Astro.props;
+
+const LABEL: Record<string, string> = {
+  operational: 'Operational',
+  degraded: 'Degraded',
+  major: 'Major outage',
+  maintenance: 'Maintenance',
+};
+---
+<div class={`row tone-${node.status}`}>
+  <div class="row-main">
+    <div class="row-head">
+      <span class={`dot ${node.status}`}></span>
+      <span class="row-name">{node.name}</span>
+    </div>
+    <span class={`row-status tone-${node.status}`}>{LABEL[node.status]}</span>
+  </div>
+  {node.message && <p class="row-msg">{node.message}</p>}
+  {node.meter && <CapacityMeter label={node.meter.label} value={node.meter.value} max={node.meter.max} />}
+</div>
+
+<style>
+  .row {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  .row:last-child { border-bottom: none; }
+  .row-main {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+  .row-head { display: flex; align-items: center; gap: 4px; }
+  .row-name { font-weight: 600; font-size: 15px; }
+  .row-status { font-size: 12px; font-weight: 600; }
+  .row-msg { margin-top: 6px; margin-left: 18px; font-size: 13px; color: var(--muted); }
+</style>

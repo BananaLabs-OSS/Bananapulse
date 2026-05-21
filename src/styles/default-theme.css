@@ -1,0 +1,29 @@
+/* Default Bananapulse theme — neutral dark palette.
+ *
+ * Consumers have three ways to restyle:
+ *   1. Pass `themeCssVarMap` to remap these vars to your own design tokens.
+ *   2. Pass `themeCssPath` to skip this file and supply your own.
+ *   3. Fork the integration and edit this file directly.
+ */
+
+:root {
+  --f: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --bg: #0e0e10;
+  --tx: #ededed;
+  --muted: rgba(255,255,255,.55);
+  --dim: rgba(255,255,255,.28);
+  --accent: #5b8def;
+  --accent-hover: #7ba3f4;
+  --accent-bg: rgba(91,141,239,.08);
+  --accent-shadow: rgba(91,141,239,.18);
+  --card: #17171a;
+  --card-hover: #1d1d21;
+  --border: rgba(255,255,255,.08);
+  --section-alt: #131316;
+
+  /* Status colors. */
+  --g: #22c55e; --gd: rgba(34,197,94,.12); --gg: rgba(34,197,94,.06);
+  --y: #eab308; --yd: rgba(234,179,8,.14);  --yg: rgba(234,179,8,.07);
+  --r: #ef4444; --rd: rgba(239,68,68,.08);  --rg: rgba(239,68,68,.07);
+  --o: #f97316; --od: rgba(249,115,22,.12); --og: rgba(249,115,22,.07);
+}
