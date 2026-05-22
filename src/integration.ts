@@ -23,14 +23,17 @@ import { assertIncident, type Incident } from './lib/canonical.js';
 
 // ── public config types ─────────────────────────────────────────────────
 
-export type BananapulseSourceType = 'queue-status';
+export type BananapulseSourceType = 'queue-status' | 'canonical';
 
 export interface BananapulseSource {
   /** Absolute URL of the upstream JSON the browser will fetch. Must be
    *  CORS-reachable from the deployed status page's origin. */
   url: string;
-  /** Mapper to apply to the upstream response. v0.1 ships `queue-status`;
-   *  add more by extending the switch in src/lib/ingest.ts. */
+  /** Mapper to apply to the upstream response. `queue-status` is the
+   *  v0.1 capacity/dependency-flags mapper; `canonical` consumes a
+   *  pre-canonicalized response (overall/components/incidents/maintenance)
+   *  and passes it through with only light validation. Add more by
+   *  extending the switch in src/lib/ingest.ts. */
   type: BananapulseSourceType;
 }
 

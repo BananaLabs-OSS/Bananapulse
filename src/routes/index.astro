@@ -86,6 +86,15 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
         </>
       )}
 
+      {/*
+        Canonical-source incidents are injected client-side by the
+        poller into #bp-incidents / #bp-maintenance. The build-time
+        block above (driven by incidents.json) stays as the fallback
+        for non-canonical sources — the poller never touches it.
+      */}
+      <div id="bp-incidents"></div>
+      <div id="bp-maintenance"></div>
+
       <h2>Systems</h2>
       <section class="tree" id="bp-tree">
         <p class="updated">Loading status…</p>
@@ -163,6 +172,55 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
           : null;
         return { overall, subsystems, updatedAt: new Date().toISOString(), banner };
       }
+
+      // Pre-canonicalized API response: upstream already returns the
+      // canonical shape, we just translate `components` (API) → `subsystems`
+      // (renderer), null-coerce message, and derive a banner from the
+      // highest-severity active incident. Trust-but-shape: the upstream
+      // is our own backend, so we don't validate every field — but a
+      // missing/wrong-typed overall trips `unreachable()` upstream of here.
+      function componentToSubsystem(c) {
+        return {
+          name: c.name,
+          status: c.status,
+          message: c.message == null ? undefined : c.message,
+          children: Array.isArray(c.children) ? c.children.map(componentToSubsystem) : undefined,
+        };
+      }
+      const SEV_RANK = { operational: 0, maintenance: 1, degraded: 2, major: 3 };
+      function deriveBanner(overall, activeIncidents, activeMaintenance) {
+        const all = [...activeIncidents, ...activeMaintenance];
+        if (all.length > 0) {
+          let top = all[0];
+          for (const i of all) if (SEV_RANK[i.severity] > SEV_RANK[top.severity]) top = i;
+          const prefix = top.severity === 'maintenance' ? 'In progress' : 'Investigating';
+          return { tone: top.severity, text: `${prefix}: ${top.title}` };
+        }
+        if (overall === 'maintenance') return { tone: 'maintenance', text: 'Scheduled maintenance underway.' };
+        return null;
+      }
+      function mapCanonical(raw) {
+        if (!raw || !LABEL[raw.overall] || !Array.isArray(raw.components)) {
+          throw new Error('canonical: shape invalid');
+        }
+        const subsystems = raw.components.map(componentToSubsystem);
+        const incidents = Array.isArray(raw.incidents) ? raw.incidents : [];
+        const maintenance = Array.isArray(raw.maintenance) ? raw.maintenance : [];
+        const activeI = incidents.filter((i) => !i.resolvedAt);
+        const activeM = maintenance.filter((i) => !i.resolvedAt);
+        const banner = deriveBanner(raw.overall, activeI, activeM);
+        return {
+          status: {
+            overall: raw.overall,
+            subsystems,
+            updatedAt: raw.updatedAt || new Date().toISOString(),
+            banner,
+          },
+          incidents,
+          maintenance,
+        };
+      }
+
       function unreachable() {
         return {
           overall: 'major',
@@ -171,18 +229,27 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
           banner: { tone: 'major', text: 'Status data unavailable. Check back in 30 seconds.' },
         };
       }
+      function unreachableResult() {
+        return { status: unreachable(), incidents: [], maintenance: [] };
+      }
 
       async function fetchStatus() {
         const src = sources && sources[0];
-        if (!src) return unreachable();
+        if (!src) return unreachableResult();
         try {
           const r = await fetch(src.url, { headers: { Accept: 'application/json' } });
-          if (!r.ok) return unreachable();
+          if (!r.ok) return unreachableResult();
           const raw = await r.json();
-          if (src.type === 'queue-status') return mapQueueStatus(raw);
-          return unreachable();
+          if (src.type === 'queue-status') {
+            return { status: mapQueueStatus(raw), incidents: [], maintenance: [] };
+          }
+          if (src.type === 'canonical') {
+            try { return mapCanonical(raw); }
+            catch { return unreachableResult(); }
+          }
+          return unreachableResult();
         } catch {
-          return unreachable();
+          return unreachableResult();
         }
       }
 
@@ -207,11 +274,54 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
         return `<aside class="alert tone-${b.tone}"><span class="dot ${b.tone}"></span><span>${escapeHtml(b.text)}</span></aside>`;
       }
 
-      function render(status) {
+      // Mirrors IncidentCard.astro's structure + .incident class so the
+      // theme CSS picks these up automatically. Resolved timestamps are
+      // omitted by the active-only filter in render() — only the
+      // ongoing/resolved meta text differs for those that slip through.
+      const INC_LABEL = {
+        degraded: 'Degraded',
+        major: 'Major outage',
+        maintenance: 'Maintenance',
+      };
+      function incidentHtml(i) {
+        const sev = INC_LABEL[i.severity] ? i.severity : 'degraded';
+        const started = i.startedAt ? new Date(i.startedAt).toUTCString() : '';
+        const resolved = i.resolvedAt ? new Date(i.resolvedAt).toUTCString() : '';
+        const startedHtml = started
+          ? `Started <time datetime="${escapeHtml(i.startedAt)}">${escapeHtml(started)}</time>`
+          : '';
+        const stateHtml = resolved
+          ? ` · resolved <time datetime="${escapeHtml(i.resolvedAt)}">${escapeHtml(resolved)}</time>`
+          : ' <span class="ongoing"> · ongoing</span>';
+        // Body comes through as upstream HTML (canonical contract says
+        // `body: '<p>...</p>'`). The Sessions Worker is the trust boundary
+        // here — Evolution's renderer is the only producer.
+        const bodyHtml = typeof i.body === 'string' ? i.body : '';
+        const idAttr = typeof i.id === 'string' && i.id ? ` id="${escapeHtml(i.id)}"` : '';
+        return `<article${idAttr} class="incident tone-${sev}">`
+          + `<header class="incident-head">`
+          + `<span class="dot ${sev}"></span>`
+          + `<h2>${escapeHtml(i.title || '')}</h2>`
+          + `<span class="badge tone-${sev}">${INC_LABEL[sev]}</span>`
+          + `</header>`
+          + `<p class="incident-meta">${startedHtml}${startedHtml ? stateHtml : ''}</p>`
+          + `<div class="incident-body">${bodyHtml}</div>`
+          + `</article>`;
+      }
+      function incidentListHtml(heading, items) {
+        if (!items || items.length === 0) return '';
+        const cards = items.map(incidentHtml).join('');
+        return `<h2>${escapeHtml(heading)}</h2><div>${cards}</div>`;
+      }
+
+      function render(result) {
+        const status = result.status;
         const overall = document.getElementById('bp-overall');
         const banner = document.getElementById('bp-banner');
         const tree = document.getElementById('bp-tree');
         const updated = document.getElementById('bp-updated');
+        const incidentsEl = document.getElementById('bp-incidents');
+        const maintenanceEl = document.getElementById('bp-maintenance');
         if (overall) overall.innerHTML = overallHtml(status.overall, siteName);
         if (banner) banner.innerHTML = bannerHtml(status.banner);
         if (tree) tree.innerHTML = status.subsystems.map(rowHtml).join('');
@@ -219,11 +329,24 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
           updated.setAttribute('datetime', status.updatedAt);
           updated.textContent = new Date(status.updatedAt).toUTCString();
         }
+        // Canonical-source incidents: only render the active subset.
+        // History stays on /status/incidents (build-time route). For
+        // non-canonical sources result.incidents/maintenance are empty
+        // and these divs stay untouched after first paint — the
+        // build-time block above still shows incidents.json content.
+        const activeIncidents = (result.incidents || []).filter((i) => !i.resolvedAt);
+        const activeMaintenance = (result.maintenance || []).filter((i) => !i.resolvedAt);
+        if (incidentsEl) {
+          incidentsEl.innerHTML = incidentListHtml('Active incidents', activeIncidents);
+        }
+        if (maintenanceEl) {
+          maintenanceEl.innerHTML = incidentListHtml('Scheduled maintenance', activeMaintenance);
+        }
       }
 
       async function poll() {
-        const status = await fetchStatus();
-        render(status);
+        const result = await fetchStatus();
+        render(result);
       }
       poll();
       setInterval(poll, POLL_MS);

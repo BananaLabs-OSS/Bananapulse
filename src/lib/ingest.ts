@@ -17,11 +17,41 @@
 // renderer turns into a `major` outage tile.
 
 import { rollupOverall } from './reduce.js';
-import type { CanonicalStatus, Health, Subsystem } from './canonical.js';
+import {
+  assertCanonicalStatus,
+  type CanonicalStatus,
+  type Health,
+  type Incident,
+  type Subsystem,
+} from './canonical.js';
 
 export interface ClientSource {
   url: string;
-  type: 'queue-status';
+  /** `queue-status` is the v0.1 capacity/dependency-flags mapper. `canonical`
+   *  is the pre-canonicalized contract — the upstream already returns the
+   *  full canonical shape (overall/components/incidents/maintenance) and
+   *  Bananapulse just passes it through with light validation. */
+  type: 'queue-status' | 'canonical';
+}
+
+/** The pre-canonicalized API response shape. Sessions's Evolution
+ *  backend serves this at /api/status. Keys/types must stay in lockstep
+ *  with that contract — see the Evolution status renderer for the spec. */
+export interface CanonicalApiResponse {
+  overall: Health;
+  components: CanonicalApiComponent[];
+  incidents: Incident[];
+  maintenance: Incident[];
+  updatedAt: string;
+}
+
+export interface CanonicalApiComponent {
+  id: number;
+  slug: string;
+  name: string;
+  status: Health;
+  message?: string | null;
+  children?: CanonicalApiComponent[];
 }
 
 interface QueueStatusUpstream {
@@ -135,6 +165,73 @@ function mapQueueStatus(raw: QueueStatusUpstream): CanonicalStatus {
   };
 }
 
+/** Map a CanonicalApiComponent (API shape) to a Subsystem (renderer shape).
+ *  They're near-identical; we just drop the API-only id/slug fields and
+ *  null-coerce message to undefined so the renderer's optional check works. */
+function componentToSubsystem(c: CanonicalApiComponent): Subsystem {
+  return {
+    name: c.name,
+    status: c.status,
+    message: c.message ?? undefined,
+    children: c.children?.map(componentToSubsystem),
+  };
+}
+
+/** Derive a top-of-page banner from active incidents. Highest severity wins.
+ *  Returns undefined when no actionable banner is appropriate (no active
+ *  incidents AND overall is operational). For overall=maintenance with no
+ *  incidents we still synthesise a maintenance banner so the page reads
+ *  cleanly when the operator flipped a maintenance switch upstream. */
+function deriveBanner(
+  overall: Health,
+  activeIncidents: Incident[],
+  activeMaintenance: Incident[],
+): { tone: Health; text: string } | undefined {
+  // Severity rank for active-incident-banner selection. Higher = worse.
+  const rank: Record<Health, number> = { operational: 0, maintenance: 1, degraded: 2, major: 3 };
+  const allActive = [...activeIncidents, ...activeMaintenance];
+  if (allActive.length > 0) {
+    const top = allActive.reduce((best, cur) =>
+      rank[cur.severity] > rank[best.severity] ? cur : best,
+    );
+    // Verb depends on severity: "Investigating" for active outages,
+    // "In progress" for maintenance windows. Operator can override the
+    // wording via the incident title itself; this prefix is just a hint.
+    const prefix = top.severity === 'maintenance' ? 'In progress' : 'Investigating';
+    return { tone: top.severity, text: `${prefix}: ${top.title}` };
+  }
+  if (overall === 'maintenance') {
+    return { tone: 'maintenance', text: 'Scheduled maintenance underway.' };
+  }
+  return undefined;
+}
+
+/** Light validation + passthrough for the pre-canonicalized API contract.
+ *  Trusts the upstream's components/incidents shape (it's our own backend
+ *  in the Sessions case) but still runs assertCanonicalStatus on the
+ *  subsystems tree so a schema regression surfaces as an unreachable
+ *  rather than a render crash. */
+function mapCanonical(raw: CanonicalApiResponse): CanonicalStatus {
+  const subsystems = (raw.components ?? []).map(componentToSubsystem);
+  const updatedAt = typeof raw.updatedAt === 'string' && raw.updatedAt
+    ? raw.updatedAt
+    : new Date().toISOString();
+  const candidate: CanonicalStatus = {
+    overall: raw.overall,
+    subsystems,
+    updatedAt,
+  };
+  // Throws if overall/subsystems are malformed — caller catches and
+  // surfaces unreachable. We do NOT validate incidents here because the
+  // renderer tolerates partial fields (missing body, etc.) gracefully.
+  assertCanonicalStatus(candidate);
+
+  const activeIncidents = (raw.incidents ?? []).filter((i) => !i.resolvedAt);
+  const activeMaintenance = (raw.maintenance ?? []).filter((i) => !i.resolvedAt);
+  const banner = deriveBanner(raw.overall, activeIncidents, activeMaintenance);
+  return banner ? { ...candidate, banner } : candidate;
+}
+
 export function unreachableStatus(sourceName: string): CanonicalStatus {
   return {
     overall: 'major',
@@ -153,30 +250,69 @@ export function unreachableStatus(sourceName: string): CanonicalStatus {
   };
 }
 
+/** Result of fetchStatus — includes incident lists so the renderer can
+ *  surface live incidents (canonical sources only; queue-status returns
+ *  empty arrays and the page falls back to the build-time incidents.json
+ *  read for that case). */
+export interface FetchStatusResult {
+  status: CanonicalStatus;
+  /** Active + resolved incidents from the upstream. Empty for non-canonical
+   *  sources — those use the build-time incidents.json fallback instead. */
+  incidents: Incident[];
+  /** Planned maintenance windows from the upstream. Empty for non-canonical. */
+  maintenance: Incident[];
+}
+
 /**
  * Fetch a source from the browser, map it to canonical status.
  * Returns an unreachable status on any failure (network / non-2xx /
  * parse / CORS). The caller renders unreachable as a `major` outage.
+ *
+ * The returned shape carries incidents + maintenance so canonical-source
+ * consumers can render live incidents without a second fetch. Non-canonical
+ * sources (e.g. queue-status) return empty arrays here and the renderer
+ * relies on the build-time incidents.json read instead.
  */
 export async function fetchStatus(
   source: ClientSource,
   siteName: string,
-): Promise<CanonicalStatus> {
-  let upstream: QueueStatusUpstream | null = null;
+): Promise<FetchStatusResult> {
+  let upstream: unknown = null;
   try {
     const res = await fetch(source.url, {
       method: 'GET',
       headers: { Accept: 'application/json' },
     });
-    if (!res.ok) return unreachableStatus(siteName);
-    upstream = (await res.json()) as QueueStatusUpstream;
+    if (!res.ok) {
+      return { status: unreachableStatus(siteName), incidents: [], maintenance: [] };
+    }
+    upstream = await res.json();
   } catch {
-    return unreachableStatus(siteName);
+    return { status: unreachableStatus(siteName), incidents: [], maintenance: [] };
   }
   switch (source.type) {
     case 'queue-status':
-      return mapQueueStatus(upstream);
+      return {
+        status: mapQueueStatus(upstream as QueueStatusUpstream),
+        incidents: [],
+        maintenance: [],
+      };
+    case 'canonical': {
+      try {
+        const raw = upstream as CanonicalApiResponse;
+        const status = mapCanonical(raw);
+        return {
+          status,
+          incidents: Array.isArray(raw.incidents) ? raw.incidents : [],
+          maintenance: Array.isArray(raw.maintenance) ? raw.maintenance : [],
+        };
+      } catch {
+        // Schema regression / missing required fields → unreachable.
+        // Keeps the page renderable instead of throwing on poll.
+        return { status: unreachableStatus(siteName), incidents: [], maintenance: [] };
+      }
+    }
     default:
-      return unreachableStatus(siteName);
+      return { status: unreachableStatus(siteName), incidents: [], maintenance: [] };
   }
 }
