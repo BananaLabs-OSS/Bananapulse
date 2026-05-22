@@ -141,6 +141,9 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
       }
 
       function mapQueueStatus(raw) {
+        // Resource %s are telemetry, not status. The status page answers
+        // "is it up?" — meters intentionally omitted. Capacity status
+        // rolls up CPU/RAM thresholds + capacity_full flag internally.
         const cap = mapCapacityHealth(Math.max(raw.used_cpu, raw.used_memory), raw.capacity_full);
         const subsystems = [
           {
@@ -149,12 +152,6 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
             message: raw.capacity_full
               ? `Capacity full — ${raw.queue_length} in queue`
               : `${raw.active_servers}/${raw.max_servers} units active`,
-            meter: { label: 'CPU', value: Math.round(raw.used_cpu), max: 100 },
-          },
-          {
-            name: 'Memory',
-            status: raw.used_memory >= 90 ? 'degraded' : 'operational',
-            meter: { label: 'RAM', value: Math.round(raw.used_memory), max: 100 },
           },
           { name: 'Provisioner', status: mapDependencyHealth(raw.provisioner_status) },
           { name: 'Payments', status: mapDependencyHealth(raw.payments_status) },

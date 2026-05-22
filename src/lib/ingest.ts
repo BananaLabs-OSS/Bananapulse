@@ -95,6 +95,10 @@ function mapQueueStatus(raw: QueueStatusUpstream): CanonicalStatus {
     };
   }
 
+  // Capacity status is the rollup of CPU + RAM usage against thresholds,
+  // and the explicit capacity_full flag. Resource percentages themselves
+  // are telemetry, not status — a status page answers "is it up?" not
+  // "what's the load?" — so meters intentionally omitted.
   const capacityHealth = mapCapacityHealth(
     Math.max(raw.used_cpu, raw.used_memory),
     raw.capacity_full,
@@ -107,16 +111,6 @@ function mapQueueStatus(raw: QueueStatusUpstream): CanonicalStatus {
       message: raw.capacity_full
         ? `Capacity full — ${raw.queue_length} in queue`
         : `${raw.active_servers}/${raw.max_servers} units active`,
-      meter: {
-        label: 'CPU',
-        value: Math.round(raw.used_cpu),
-        max: 100,
-      },
-    },
-    {
-      name: 'Memory',
-      status: raw.used_memory >= 90 ? 'degraded' : 'operational',
-      meter: { label: 'RAM', value: Math.round(raw.used_memory), max: 100 },
     },
     { name: 'Provisioner', status: mapDependencyHealth(raw.provisioner_status ?? raw.bananagine_status ?? '') },
     { name: 'Payments', status: mapDependencyHealth(raw.payments_status ?? raw.stripe_status ?? '') },
