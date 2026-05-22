@@ -32,9 +32,15 @@ interface QueueStatusUpstream {
   used_cpu: number;
   used_memory: number;
   capacity_full: boolean;
-  provisioner_status: string;
-  payments_status: string;
-  email_status: string;
+  // Dependency-health fields. Bananapulse reads the generic-named fields
+  // first, then falls back to Sessions-shaped legacy names so existing
+  // sessions.gg consumers work without changing their upstream.
+  provisioner_status?: string;
+  payments_status?: string;
+  email_status?: string;
+  bananagine_status?: string;
+  stripe_status?: string;
+  resend_status?: string;
   estimated_next_slot?: string;
   estimated_new_order?: string;
 }
@@ -87,9 +93,9 @@ function mapQueueStatus(raw: QueueStatusUpstream): CanonicalStatus {
       status: raw.used_memory >= 90 ? 'degraded' : 'operational',
       meter: { label: 'RAM', value: Math.round(raw.used_memory), max: 100 },
     },
-    { name: 'Provisioner', status: mapDependencyHealth(raw.provisioner_status) },
-    { name: 'Payments', status: mapDependencyHealth(raw.payments_status) },
-    { name: 'Email delivery', status: mapDependencyHealth(raw.email_status) },
+    { name: 'Provisioner', status: mapDependencyHealth(raw.provisioner_status ?? raw.bananagine_status ?? '') },
+    { name: 'Payments', status: mapDependencyHealth(raw.payments_status ?? raw.stripe_status ?? '') },
+    { name: 'Email delivery', status: mapDependencyHealth(raw.email_status ?? raw.resend_status ?? '') },
   ];
 
   const overall = rollupOverall(subsystems);
