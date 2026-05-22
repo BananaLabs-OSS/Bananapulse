@@ -166,14 +166,18 @@ function mapQueueStatus(raw: QueueStatusUpstream): CanonicalStatus {
 }
 
 /** Map a CanonicalApiComponent (API shape) to a Subsystem (renderer shape).
- *  They're near-identical; we just drop the API-only id/slug fields and
- *  null-coerce message to undefined so the renderer's optional check works. */
+ *  Carries id + slug through as optional extras (not in the Subsystem type
+ *  but valid at runtime) — these are needed by the inline-script renderer
+ *  to look up `affectedComponents` integers → component names for the
+ *  incident-affects chip line. Dropping them silently breaks that lookup. */
 function componentToSubsystem(c: CanonicalApiComponent): Subsystem {
   return {
     name: c.name,
     status: c.status,
     message: c.message ?? undefined,
     children: c.children?.map(componentToSubsystem),
+    // Extra runtime fields preserved for the incident-affects lookup.
+    ...({ id: c.id, slug: c.slug } as Partial<Subsystem>),
   };
 }
 
