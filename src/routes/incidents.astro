@@ -16,7 +16,10 @@ const incidents = listIncidents(config.absIncidentsPath);
 
 const mount = config.mountPath;
 const feedHref = mount === '/' ? '/incidents.xml' : `${mount}/incidents.xml`;
-const useDefaultTheme = !config.themeCssPath;
+// Theme resolution mirrors routes/index.astro — inline consumer's
+// themeCss when integration baked it in, fall back to default-theme.css.
+const useDefaultTheme = !config.themeCssPath || !config.themeCss;
+const inlineThemeCss: string = config.themeCss ?? '';
 const themeRemap = Object.entries(config.themeCssVarMap ?? {})
   .map(([from, to]) => `  ${from}: var(${to});`)
   .join('\n');
@@ -31,6 +34,7 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
           title={`${config.name} incidents`} href={feedHref} />
     <link rel="stylesheet" href={baseCss} />
     {useDefaultTheme && <link rel="stylesheet" href={defaultThemeCss} />}
+    {inlineThemeCss && <style set:html={inlineThemeCss}></style>}
     {themeRemap && (
       <style set:html={`:root {\n${themeRemap}\n}`}></style>
     )}

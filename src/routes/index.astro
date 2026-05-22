@@ -31,7 +31,11 @@ const active = loadIncidents(config.absIncidentsPath).filter(
 const mount = config.mountPath;
 const feedHref = mount === '/' ? '/incidents.xml' : `${mount}/incidents.xml`;
 const historyHref = mount === '/' ? '/incidents' : `${mount}/incidents`;
-const useDefaultTheme = !config.themeCssPath;
+// Theme resolution: if themeCssPath was set + file was readable, the
+// integration baked its contents into config.themeCss. We render that
+// inline and skip default-theme.css. Otherwise default-theme.css loads.
+const useDefaultTheme = !config.themeCssPath || !config.themeCss;
+const inlineThemeCss: string = config.themeCss ?? '';
 
 // Build the theme-remap CSS block. If the consumer mapped Bananapulse's
 // vars to their own, emit `:root { --accent: var(--brand-blue); ... }`
@@ -54,6 +58,7 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
           title={`${config.name} incidents`} href={feedHref} />
     <link rel="stylesheet" href={baseCss} />
     {useDefaultTheme && <link rel="stylesheet" href={defaultThemeCss} />}
+    {inlineThemeCss && <style set:html={inlineThemeCss}></style>}
     {themeRemap && (
       <style set:html={`:root {\n${themeRemap}\n}`}></style>
     )}

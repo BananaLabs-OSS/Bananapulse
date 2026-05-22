@@ -165,6 +165,24 @@ export default function bananapulse(opts: BananapulseConfig): AstroIntegration {
         projectRoot = fileURLToPath(config.root);
         const absIncidentsPath = resolve(projectRoot, incidentsPath);
 
+        // Read consumer's theme CSS at build time and inline it into
+        // the page. Inline avoids the per-deploy path-resolution
+        // complexity of a Vite static asset import (the path is
+        // consumer-relative). Cost: theme CSS lives in the HTML, not a
+        // cacheable .css file. Acceptable for a status page that's
+        // generally low-traffic and HTML is cached short anyway.
+        let themeCss = '';
+        if (opts.themeCssPath) {
+          const absThemePath = resolve(projectRoot, opts.themeCssPath);
+          if (existsSync(absThemePath)) {
+            try {
+              themeCss = readFileSync(absThemePath, 'utf8');
+            } catch {
+              // Fall through with empty themeCss — default theme will load.
+            }
+          }
+        }
+
         const virtualConfig = {
           mountPath,
           name: opts.name,
@@ -172,6 +190,7 @@ export default function bananapulse(opts: BananapulseConfig): AstroIntegration {
           sources: opts.sources,
           themeCssVarMap: opts.themeCssVarMap ?? {},
           themeCssPath: opts.themeCssPath ?? null,
+          themeCss,
           // Absolute path is computed once here so routes don't depend
           // on process.cwd() (which differs between `astro dev` and
           // build pipelines that run the build from a parent dir).
