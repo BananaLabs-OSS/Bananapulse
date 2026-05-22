@@ -181,6 +181,8 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
       // missing/wrong-typed overall trips `unreachable()` upstream of here.
       function componentToSubsystem(c) {
         return {
+          id: c.id,        // carried through for incident-affects id→name lookup
+          slug: c.slug,    // carried through for future selector use
           name: c.name,
           status: c.status,
           message: c.message == null ? undefined : c.message,
