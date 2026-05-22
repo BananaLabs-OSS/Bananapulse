@@ -283,7 +283,22 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
         major: 'Major outage',
         maintenance: 'Maintenance',
       };
-      function incidentHtml(i) {
+      // buildComponentMap walks the components tree (recursive) and
+      // returns id → {name, slug} so incident-affects can render names
+      // instead of bare integer IDs.
+      function buildComponentMap(nodes) {
+        const map = new Map();
+        function walk(xs) {
+          for (const c of xs) {
+            map.set(c.id, c);
+            if (Array.isArray(c.children)) walk(c.children);
+          }
+        }
+        walk(nodes || []);
+        return map;
+      }
+
+      function incidentHtml(i, componentMap) {
         const sev = INC_LABEL[i.severity] ? i.severity : 'degraded';
         const started = i.startedAt ? new Date(i.startedAt).toUTCString() : '';
         const resolved = i.resolvedAt ? new Date(i.resolvedAt).toUTCString() : '';
@@ -319,6 +334,18 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
         const postmortemHtml = typeof i.postmortemUrl === 'string' && i.postmortemUrl
           ? `<a class="incident-link" href="${escapeHtml(i.postmortemUrl)}" target="_blank" rel="noopener">Read postmortem →</a>`
           : '';
+        // Affected-components chips: looked up by id from the components
+        // map so customers see "Affects: Checkout, Provisioning" not
+        // "Affects: 16, 18". Unknown ids are dropped silently.
+        const affects = Array.isArray(i.affectedComponents) ? i.affectedComponents : [];
+        const affectsChips = affects
+          .map(id => componentMap && componentMap.get(id))
+          .filter(Boolean)
+          .map(c => `<span class="incident-affect-chip">${escapeHtml(c.name)}</span>`)
+          .join('');
+        const affectsHtml = affectsChips
+          ? `<p class="incident-affects"><span class="incident-affects-label">Affects:</span> ${affectsChips}</p>`
+          : '';
         return `<article${idAttr} class="incident tone-${sev}">`
           + `<header class="incident-head">`
           + `<span class="dot ${sev}"></span>`
@@ -326,14 +353,15 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
           + `<span class="badge tone-${sev}">${INC_LABEL[sev]}</span>`
           + `</header>`
           + `<p class="incident-meta">${startedHtml}${startedHtml ? stateHtml : ''}</p>`
+          + affectsHtml
           + `<div class="incident-body">${bodyHtml}</div>`
           + updatesHtml
           + postmortemHtml
           + `</article>`;
       }
-      function incidentListHtml(heading, items) {
+      function incidentListHtml(heading, items, componentMap) {
         if (!items || items.length === 0) return '';
-        const cards = items.map(incidentHtml).join('');
+        const cards = items.map(i => incidentHtml(i, componentMap)).join('');
         return `<h2>${escapeHtml(heading)}</h2><div>${cards}</div>`;
       }
 
@@ -359,11 +387,14 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
         // build-time block above still shows incidents.json content.
         const activeIncidents = (result.incidents || []).filter((i) => !i.resolvedAt);
         const activeMaintenance = (result.maintenance || []).filter((i) => !i.resolvedAt);
+        // Component map built once per render so id→name lookups in
+        // incident-affects don't repeat the tree walk for each card.
+        const componentMap = buildComponentMap(status.subsystems);
         if (incidentsEl) {
-          incidentsEl.innerHTML = incidentListHtml('Active incidents', activeIncidents);
+          incidentsEl.innerHTML = incidentListHtml('Active incidents', activeIncidents, componentMap);
         }
         if (maintenanceEl) {
-          maintenanceEl.innerHTML = incidentListHtml('Scheduled maintenance', activeMaintenance);
+          maintenanceEl.innerHTML = incidentListHtml('Scheduled maintenance', activeMaintenance, componentMap);
         }
       }
 
