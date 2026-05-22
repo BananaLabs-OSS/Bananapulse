@@ -298,6 +298,27 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
         // here — Evolution's renderer is the only producer.
         const bodyHtml = typeof i.body === 'string' ? i.body : '';
         const idAttr = typeof i.id === 'string' && i.id ? ` id="${escapeHtml(i.id)}"` : '';
+        // Updates render as a reverse-chronological timeline below the
+        // body. Each update is `{ body: '<p>html</p>', postedAt: ISO }`.
+        // The `reversed` attr on `<ol>` makes the visible numbering match
+        // the newest-first order without us inverting the actual items.
+        const updates = Array.isArray(i.updates) ? i.updates : [];
+        const updatesHtml = updates.length > 0
+          ? `<ol class="incident-updates" reversed>`
+            + updates.slice().reverse().map(u => {
+                const posted = u.postedAt ? new Date(u.postedAt).toUTCString() : '';
+                const ts = posted
+                  ? `<time class="incident-update-time" datetime="${escapeHtml(u.postedAt)}">${escapeHtml(posted)}</time>`
+                  : '';
+                const ubody = typeof u.body === 'string' ? u.body : '';
+                return `<li class="incident-update">${ts}<div class="incident-update-body">${ubody}</div></li>`;
+              }).join('')
+            + `</ol>`
+          : '';
+        // Optional postmortem link rendered after the timeline.
+        const postmortemHtml = typeof i.postmortemUrl === 'string' && i.postmortemUrl
+          ? `<a class="incident-link" href="${escapeHtml(i.postmortemUrl)}" target="_blank" rel="noopener">Read postmortem →</a>`
+          : '';
         return `<article${idAttr} class="incident tone-${sev}">`
           + `<header class="incident-head">`
           + `<span class="dot ${sev}"></span>`
@@ -306,6 +327,8 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
           + `</header>`
           + `<p class="incident-meta">${startedHtml}${startedHtml ? stateHtml : ''}</p>`
           + `<div class="incident-body">${bodyHtml}</div>`
+          + updatesHtml
+          + postmortemHtml
           + `</article>`;
       }
       function incidentListHtml(heading, items) {
