@@ -43,6 +43,10 @@ interface QueueStatusUpstream {
   resend_status?: string;
   estimated_next_slot?: string;
   estimated_new_order?: string;
+  // Optional: when true, status page renders maintenance banner + flips
+  // overall to `maintenance`. Consumers set this on their feed when
+  // planned maintenance is on (Sessions wires it from MAINTENANCE_MODE).
+  maintenance_mode?: boolean;
 }
 
 function mapDependencyHealth(raw: string): Health {
@@ -70,6 +74,27 @@ function mapCapacityHealth(used: number, full: boolean): Health {
 }
 
 function mapQueueStatus(raw: QueueStatusUpstream): CanonicalStatus {
+  // Planned maintenance short-circuits the dependency-health view: the
+  // operator knows the site is intentionally degraded, so we render that
+  // signal cleanly instead of a screen full of red dependency tiles.
+  if (raw.maintenance_mode) {
+    return {
+      overall: 'maintenance',
+      subsystems: [
+        {
+          name: 'Planned maintenance',
+          status: 'maintenance',
+          message: 'Sessions is in planned maintenance. Existing servers continue to run; new orders and reconfigurations are paused.',
+        },
+      ],
+      updatedAt: new Date().toISOString(),
+      banner: {
+        tone: 'maintenance',
+        text: 'Planned maintenance in progress.',
+      },
+    };
+  }
+
   const capacityHealth = mapCapacityHealth(
     Math.max(raw.used_cpu, raw.used_memory),
     raw.capacity_full,
