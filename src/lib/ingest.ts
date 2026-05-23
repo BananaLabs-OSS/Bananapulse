@@ -168,8 +168,10 @@ function mapQueueStatus(raw: QueueStatusUpstream): CanonicalStatus {
 /** Map a CanonicalApiComponent (API shape) to a Subsystem (renderer shape).
  *  Carries id + slug through as optional extras (not in the Subsystem type
  *  but valid at runtime) — these are needed by the inline-script renderer
- *  to look up `affectedComponents` integers → component names for the
- *  incident-affects chip line. Dropping them silently breaks that lookup. */
+ *  to look up `affectedComponents` slugs → component names for the
+ *  incident-affects chip line. Dropping them silently breaks that lookup.
+ *  (Pre-M8 the lookup was by integer id; the canonical wire now ships
+ *  stable slug strings.) */
 function componentToSubsystem(c: CanonicalApiComponent): Subsystem {
   return {
     name: c.name,

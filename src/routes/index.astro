@@ -286,13 +286,15 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
         maintenance: 'Maintenance',
       };
       // buildComponentMap walks the components tree (recursive) and
-      // returns id → {name, slug} so incident-affects can render names
-      // instead of bare integer IDs.
+      // returns slug → {name, slug, id} so incident-affects can render
+      // names instead of bare slugs. (Pre-M8 this was keyed by integer
+      // id; the canonical wire now ships slug strings in
+      // `affectedComponents`, which are stable across schema renumbers.)
       function buildComponentMap(nodes) {
         const map = new Map();
         function walk(xs) {
           for (const c of xs) {
-            map.set(c.id, c);
+            if (c.slug) map.set(c.slug, c);
             if (Array.isArray(c.children)) walk(c.children);
           }
         }
@@ -336,12 +338,14 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
         const postmortemHtml = typeof i.postmortemUrl === 'string' && i.postmortemUrl
           ? `<a class="incident-link" href="${escapeHtml(i.postmortemUrl)}" target="_blank" rel="noopener">Read postmortem →</a>`
           : '';
-        // Affected-components chips: looked up by id from the components
-        // map so customers see "Affects: Checkout, Provisioning" not
-        // "Affects: 16, 18". Unknown ids are dropped silently.
+        // Affected-components chips: looked up by slug from the
+        // components map so customers see "Affects: Checkout, Provisioning"
+        // not "Affects: checkout, provisioning". Unknown slugs are
+        // dropped silently. (M8: wire ships slugs; pre-M8 backends sent
+        // integer ids, so accept either while the rollout is in flight.)
         const affects = Array.isArray(i.affectedComponents) ? i.affectedComponents : [];
         const affectsChips = affects
-          .map(id => componentMap && componentMap.get(id))
+          .map(key => componentMap && componentMap.get(key))
           .filter(Boolean)
           .map(c => `<span class="incident-affect-chip">${escapeHtml(c.name)}</span>`)
           .join('');
