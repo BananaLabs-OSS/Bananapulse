@@ -258,6 +258,15 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
       function escapeHtml(s) {
         return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       }
+      // Only allow http(s) hrefs so a `javascript:`/`data:` URL from the
+      // upstream feed can't execute on click. Returns '' for anything else.
+      function safeHttpUrl(s) {
+        if (typeof s !== 'string' || !s) return '';
+        try {
+          const u = new URL(s, 'https://invalid.invalid/');
+          return (u.protocol === 'http:' || u.protocol === 'https:') ? s : '';
+        } catch { return ''; }
+      }
       function meterHtml(m) {
         if (!m) return '';
         const pct = Math.max(0, Math.min(100, (m.value / Math.max(m.max, 1)) * 100));
@@ -312,10 +321,10 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
         const stateHtml = resolved
           ? ` · resolved <time datetime="${escapeHtml(i.resolvedAt)}">${escapeHtml(resolved)}</time>`
           : ' <span class="ongoing"> · ongoing</span>';
-        // Body comes through as upstream HTML (canonical contract says
-        // `body: '<p>...</p>'`). The Sessions Worker is the trust boundary
-        // here — Evolution's renderer is the only producer.
-        const bodyHtml = typeof i.body === 'string' ? i.body : '';
+        // Body is escaped (not trusted HTML): an untrusted/compromised
+        // upstream feed must not be able to inject markup/scripts into the
+        // status-page origin. Plain-text bodies render unchanged.
+        const bodyHtml = typeof i.body === 'string' ? escapeHtml(i.body) : '';
         const idAttr = typeof i.id === 'string' && i.id ? ` id="${escapeHtml(i.id)}"` : '';
         // Updates render as a reverse-chronological timeline below the
         // body. Each update is `{ body: '<p>html</p>', postedAt: ISO }`.
@@ -329,14 +338,16 @@ const themeRemap = Object.entries(config.themeCssVarMap ?? {})
                 const ts = posted
                   ? `<time class="incident-update-time" datetime="${escapeHtml(u.postedAt)}">${escapeHtml(posted)}</time>`
                   : '';
-                const ubody = typeof u.body === 'string' ? u.body : '';
+                const ubody = typeof u.body === 'string' ? escapeHtml(u.body) : '';
                 return `<li class="incident-update">${ts}<div class="incident-update-body">${ubody}</div></li>`;
               }).join('')
             + `</ol>`
           : '';
-        // Optional postmortem link rendered after the timeline.
-        const postmortemHtml = typeof i.postmortemUrl === 'string' && i.postmortemUrl
-          ? `<a class="incident-link" href="${escapeHtml(i.postmortemUrl)}" target="_blank" rel="noopener">Read postmortem →</a>`
+        // Optional postmortem link rendered after the timeline. Scheme is
+        // restricted to http/https so a `javascript:` href can't execute.
+        const postmortemUrl = safeHttpUrl(i.postmortemUrl);
+        const postmortemHtml = postmortemUrl
+          ? `<a class="incident-link" href="${escapeHtml(postmortemUrl)}" target="_blank" rel="noopener">Read postmortem →</a>`
           : '';
         // Affected-components chips: looked up by slug from the
         // components map so customers see "Affects: Checkout, Provisioning"
