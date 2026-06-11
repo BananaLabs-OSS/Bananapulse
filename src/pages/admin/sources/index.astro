@@ -1,0 +1,153 @@
+---
+/**
+ * Sources & Tokens — register a source, issue/rotate its bearer token (shown
+ * once), set weight + default TTL, and map raw_label → component. One-time-ish
+ * config. All mutations go through lib/sources.ts so the engine's token scheme
+ * stays the single source of truth.
+ */
+import AdminShell from '@/layouts/AdminShell.astro';
+import { db } from '@/db';
+import { sources, sourceTargetMap } from '@/db/schema';
+import { eq } from 'drizzle-orm';
+import { createSource, listSources, revokeSource, mapTarget, removeMapping, type SourceKind } from '@/lib/sources';
+import { hashToken, generateToken } from '@/lib/api-tokens';
+import { getResource, SOURCE_KIND_OPTIONS } from '@/lib/admin/resources';
+import { componentOptions, pillHtml } from '@/lib/admin/view';
+import { navCounts, propertyOptions } from '@/lib/admin/nav';
+
+const resource = getResource('sources')!;
+const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+let newToken: string | null = null;
+let error = '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = form.get('_action')?.toString();
+
+  if (action === 'create') {
+    const name = form.get('name')?.toString() ?? '';
+    if (!name) { error = 'A source name is required.'; }
+    else {
+      const ttl = form.get('defaultTtl')?.toString();
+      const result = await createSource({
+        name,
+        kind: (form.get('kind')?.toString() as SourceKind) ?? 'push',
+        weight: Number(form.get('weight')?.toString() || '1'),
+        trusted: form.get('trusted')?.toString() === 'true',
+        defaultTtl: ttl ? Number(ttl) : null,
+      });
+      newToken = result.token;
+    }
+  }
+  if (action === 'trust') {
+    const sid = form.get('source_id')?.toString() ?? '';
+    const to = form.get('trusted')?.toString() === 'true';
+    if (sid) await db.update(sources).set({ trusted: to }).where(eq(sources.id, sid));
+  }
+  if (action === 'rotate') {
+    const sid = form.get('source_id')?.toString() ?? '';
+    const raw = generateToken();
+    await db.update(sources).set({ tokenHash: hashToken(raw) }).where(eq(sources.id, sid));
+    newToken = raw;
+  }
+  if (action === 'revoke') {
+    await revokeSource(form.get('source_id')?.toString() ?? '');
+  }
+  if (action === 'map') {
+    const sid = form.get('source_id')?.toString() ?? '';
+    const raw = form.get('raw_label')?.toString() ?? '';
+    const comp = form.get('component_id')?.toString() ?? '';
+    if (sid && raw && comp) await mapTarget(sid, raw, comp);
+  }
+  if (action === 'unmap') {
+    await removeMapping(form.get('map_id')?.toString() ?? '');
+  }
+}
+
+const list = await listSources();
+const maps = await db.select().from(sourceTargetMap);
+const components = await componentOptions();
+const counts = await navCounts();
+const properties = await propertyOptions();
+const compName = (id: string) => components.find((c) => c.value === id)?.label ?? id;
+---
+<AdminShell title="Sources & Tokens" active="sources" adminEmail={adminEmail} counts={counts} property="all" properties={properties}>
+  <p class="note" style="margin-bottom:16px">{resource.blurb}</p>
+
+  {error && <div class="err">{error}</div>}
+  {newToken && (
+    <div class="banner">
+      Token issued. Copy it now — it is shown only once.
+      <code>{newToken}</code>
+    </div>
+  )}
+
+  <div class="seclbl">Register a source</div>
+  <form method="POST" class="form" style="margin-bottom:22px">
+    <input type="hidden" name="_action" value="create" />
+    <div class="fld row">
+      <div><label>Name *</label><input type="text" name="name" placeholder="evolution-self-report" required /></div>
+      <div><label>Kind</label><select name="kind">{SOURCE_KIND_OPTIONS.map((o) => <option value={o.value}>{o.label}</option>)}</select></div>
+    </div>
+    <div class="fld row">
+      <div><label>Trust weight</label><input type="number" name="weight" value="1" /></div>
+      <div><label>Default TTL (seconds)</label><input type="number" name="defaultTtl" placeholder="300" /></div>
+    </div>
+    <div class="fld"><label class="check"><input type="checkbox" name="trusted" value="true" /> Trusted (first-party)</label></div>
+    <p class="note">Higher weight counts for more in quorum. Blank TTL = never expires (no dead-man for this source). <strong>Trusted</strong> = a first-party vantage that may declare an incident on its own (capped to degraded); leave off for external validators, which only corroborate.</p>
+    <button class="btn pri" type="submit">Register source</button>
+  </form>
+
+  <div class="seclbl">Sources</div>
+  <div class="tbl">
+    <div class="tr head" style="grid-template-columns:1.4fr .8fr .6fr .6fr .8fr 1.4fr"><span>Name</span><span>Kind</span><span>Trust</span><span>Weight</span><span>TTL</span><span></span></div>
+    {list.length === 0 && <div class="tr" style="grid-template-columns:1.4fr .8fr .6fr .6fr .8fr 1.4fr"><span class="muted">No sources registered.</span></div>}
+    {list.map((s) => (
+      <div class="tr" style={`grid-template-columns:1.4fr .8fr .6fr .6fr .8fr 1.4fr;${s.revokedAt ? 'opacity:.5' : ''}`}>
+        <span class="t">{s.name}</span>
+        <span set:html={pillHtml(s.kind)} />
+        <span set:html={s.kind === 'manual' ? pillHtml('ok', 'authoritative') : (s.trusted ? pillHtml('ok', 'trusted') : pillHtml('stale', 'validator'))} />
+        <span class="muted">{s.weight}</span>
+        <span class="muted">{s.defaultTtl ?? '—'}</span>
+        <span style="display:flex;gap:6px;justify-content:flex-end">
+          {!s.revokedAt && s.kind !== 'manual' && (
+            <form method="POST"><input type="hidden" name="_action" value="trust" /><input type="hidden" name="source_id" value={s.id} /><input type="hidden" name="trusted" value={s.trusted ? 'false' : 'true'} /><button class="btn" style="padding:5px 10px" type="submit">{s.trusted ? 'Make validator' : 'Make trusted'}</button></form>
+          )}
+          {!s.revokedAt && (
+            <>
+              <form method="POST"><input type="hidden" name="_action" value="rotate" /><input type="hidden" name="source_id" value={s.id} /><button class="btn" style="padding:5px 10px" type="submit">Rotate</button></form>
+              <form method="POST"><input type="hidden" name="_action" value="revoke" /><input type="hidden" name="source_id" value={s.id} /><button class="btn danger" style="padding:5px 10px" type="submit">Revoke</button></form>
+            </>
+          )}
+          {s.revokedAt && <span set:html={pillHtml('stale', 'revoked')} />}
+        </span>
+      </div>
+    ))}
+  </div>
+
+  <div class="seclbl">Label → component mappings</div>
+  <p class="note" style="margin-bottom:12px">The only place vendor vocabulary touches the model. Map a source's raw label to a component the engine knows.</p>
+  <form method="POST" class="form" style="margin-bottom:18px">
+    <input type="hidden" name="_action" value="map" />
+    <div class="fld row">
+      <div><label>Source</label><select name="source_id">{list.filter((s) => !s.revokedAt).map((s) => <option value={s.id}>{s.name}</option>)}</select></div>
+      <div><label>Raw label</label><input type="text" name="raw_label" placeholder="payments" /></div>
+    </div>
+    <div class="fld"><label>Component</label><select name="component_id">{components.map((c) => <option value={c.value}>{c.label}</option>)}</select></div>
+    <button class="btn pri" type="submit">Add mapping</button>
+  </form>
+  <div class="tbl">
+    <div class="tr head" style="grid-template-columns:1fr 1fr 1.4fr .6fr"><span>Source</span><span>Raw label</span><span>Component</span><span></span></div>
+    {maps.length === 0 && <div class="tr" style="grid-template-columns:1fr 1fr 1.4fr .6fr"><span class="muted">No mappings yet — add one above.</span></div>}
+    {maps.map((m) => (
+      <div class="tr" style="grid-template-columns:1fr 1fr 1.4fr .6fr">
+        <span class="t">{list.find((s) => s.id === m.sourceId)?.name ?? m.sourceId}</span>
+        <span class="muted">{m.rawLabel}</span>
+        <span class="muted">{compName(m.componentId)}</span>
+        <span style="display:flex;justify-content:flex-end">
+          <form method="POST"><input type="hidden" name="_action" value="unmap" /><input type="hidden" name="map_id" value={m.id} /><button class="btn danger" style="padding:5px 10px" type="submit">Remove</button></form>
+        </span>
+      </div>
+    ))}
+  </div>
+</AdminShell>

@@ -1,0 +1,16 @@
+---
+/** Styled not-found body, rendered inside the public Skin (keeps the brand). */
+interface Props {
+  title?: string;
+  message?: string;
+}
+const { title = 'Not found', message = "We couldn't find that page." } = Astro.props;
+---
+<div class="banner" style="--bc:var(--major)">
+  <span class="ic"></span>
+  <div>
+    <h1>{title}</h1>
+    <p>{message}</p>
+  </div>
+</div>
+<a class="back" href="/" style="margin-top:14px">← Back to status</a>

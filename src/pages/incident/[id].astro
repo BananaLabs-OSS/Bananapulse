@@ -1,0 +1,49 @@
+---
+/**
+ * Standalone incident detail (/incident/{id}). Crumbs come from the component
+ * tree (the node the incident is attached to); a tappable breadcrumb climbs
+ * back up any level. A missing incident renders a styled not-found.
+ */
+import Skin from '../../layouts/Skin.astro';
+import SkinCrumbs from '../../components/skin/SkinCrumbs.astro';
+import IncidentDetail from '../../components/skin/IncidentDetail.astro';
+import NotFound from '../../components/skin/NotFound.astro';
+import { getIncident } from '../../lib/db-incidents';
+import { componentCrumbs } from '../../lib/components';
+import type { CrumbItem } from '../../lib/view';
+import type { Incident } from '../../lib/types';
+
+const { id } = Astro.params;
+const scope = (Astro.locals as any).scope as string | null;
+
+let incident: Incident | undefined;
+let crumbs: CrumbItem[] = [];
+let affectedPath: string[] = [];
+try {
+  incident = id ? await getIncident(id) : undefined;
+  if (incident) {
+    const leaf = (incident.affects ?? [])[0];
+    if (leaf) {
+      const ctx = await componentCrumbs(scope, leaf);
+      crumbs = ctx.crumbs;
+      affectedPath = ctx.affectedPath;
+    }
+    crumbs = [...crumbs, { label: incident.title }];
+    if (affectedPath.length === 0) affectedPath = [incident.title];
+  }
+} catch (_e) {
+  // DB unreachable
+}
+
+if (!incident) Astro.response.status = 404;
+---
+<Skin scope={scope} title={incident ? incident.title : 'Not found'}>
+  {incident ? (
+    <>
+      <SkinCrumbs crumbs={crumbs} />
+      <IncidentDetail incident={incident} affectedPath={affectedPath} />
+    </>
+  ) : (
+    <NotFound title="Incident not found" message="That incident doesn't exist or was removed." />
+  )}
+</Skin>

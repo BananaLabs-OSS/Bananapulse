@@ -1,0 +1,45 @@
+---
+/**
+ * Subscribers — endpoints notified on incident open/update. Mostly read; an
+ * endpoint can be removed.
+ */
+import AdminShell from '@/layouts/AdminShell.astro';
+import { db } from '@/db';
+import { subscribers } from '@/db/schema';
+import { eq, desc } from 'drizzle-orm';
+import { getResource } from '@/lib/admin/resources';
+import { navCounts, propertyOptions } from '@/lib/admin/nav';
+import { pillHtml, fmtDate } from '@/lib/admin/view';
+
+const resource = getResource('subscribers')!;
+const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  if (form.get('_action')?.toString() === 'delete') {
+    await db.delete(subscribers).where(eq(subscribers.id, form.get('id')?.toString() ?? ''));
+  }
+  return Astro.redirect('/admin/subscribers');
+}
+
+const rows = await db.select().from(subscribers).orderBy(desc(subscribers.createdAt));
+const counts = await navCounts();
+const properties = await propertyOptions();
+---
+<AdminShell title="Subscribers" active="subscribers" adminEmail={adminEmail} counts={counts} property="all" properties={properties}>
+  <p class="note" style="margin-bottom:16px">{resource.blurb}</p>
+  <div class="tbl">
+    <div class="tr head" style="grid-template-columns:1.6fr .9fr .9fr 30px"><span>Endpoint</span><span>Status</span><span>Subscribed</span><span></span></div>
+    {rows.length === 0 && <div class="tr" style="grid-template-columns:1.6fr .9fr .9fr 30px"><span class="muted">No subscribers yet.</span></div>}
+    {rows.map((s) => (
+      <div class="tr" style="grid-template-columns:1.6fr .9fr .9fr 30px">
+        <span class="t">{s.email}</span>
+        <span set:html={pillHtml(s.confirmedAt ? 'operational' : 'stale', s.confirmedAt ? 'confirmed' : 'pending')} />
+        <span class="muted">{fmtDate(s.createdAt)}</span>
+        <span style="text-align:right">
+          <form method="POST"><input type="hidden" name="_action" value="delete" /><input type="hidden" name="id" value={s.id} /><button class="btn danger" style="padding:4px 8px;font-size:11px" type="submit">Remove</button></form>
+        </span>
+      </div>
+    ))}
+  </div>
+</AdminShell>

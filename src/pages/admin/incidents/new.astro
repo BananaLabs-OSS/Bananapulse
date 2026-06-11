@@ -1,0 +1,71 @@
+---
+/**
+ * Declare a brand-new incident the monitors missed.
+ *
+ * A manual declare is NOT a hand-written incident row. It is a high-weight
+ * `manual`-source observation routed through recordManualOverride, so it opens
+ * a human-owned (auto=false) incident through the SAME quorum engine the
+ * monitors use. The engine owns existence; we only supply the words.
+ */
+import AdminShell from '@/layouts/AdminShell.astro';
+import ResourceForm from '@/components/admin/ResourceForm.astro';
+import { getResource } from '@/lib/admin/resources';
+import { getManualSource } from '@/lib/sources';
+import { recordManualOverride, openIncidentFor, type Level } from '@/lib/quorum';
+import { componentExists, isLeafComponent } from '@/lib/components';
+import { componentOptions } from '@/lib/admin/view';
+import { navCounts, propertyOptions } from '@/lib/admin/nav';
+
+const resource = getResource('incidents')!;
+const who = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+let error = '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const title = form.get('title')?.toString() ?? '';
+  const summary = form.get('summary')?.toString() ?? '';
+  const severity = form.get('severity')?.toString() ?? 'major';
+  const affects = form.getAll('affects').map((a) => a.toString()).filter(Boolean);
+
+  let unknown = '';
+  let nonLeaf = '';
+  for (const a of affects) {
+    if (!(await componentExists(a))) { unknown = a; break; }
+    if (!(await isLeafComponent(a))) { nonLeaf = a; break; }
+  }
+
+  if (!title || !summary || affects.length === 0) {
+    error = 'Title, customer message, and at least one affected component are required.';
+  } else if (unknown) {
+    error = `Unknown component "${unknown}".`;
+  } else if (nonLeaf) {
+    error = `Component "${nonLeaf}" is not a leaf (declare on a service or host).`;
+  } else {
+    const level: Level = severity === 'major' ? 'major' : 'degraded';
+    const manual = await getManualSource();
+    // Declare for each affected component via the engine path.
+    // Pass the human title/body straight through; recordManualOverride makes
+    // them the headline even when the engine already opened a templated incident.
+    for (const componentId of affects) {
+      await recordManualOverride({
+        manualSourceId: manual.id, componentId,
+        signal: level === 'major' ? 'down' : 'degraded',
+        level, body: summary, title, author: who,
+      });
+    }
+    const open = await openIncidentFor(affects[0]);
+    if (open) return Astro.redirect(`/admin/incidents/${open.id}`);
+    return Astro.redirect('/admin/incidents');
+  }
+}
+
+const components = await componentOptions();
+const counts = await navCounts();
+const properties = await propertyOptions();
+---
+<AdminShell title="Declare incident" active="incidents" adminEmail={who} counts={counts} property="all" properties={properties}
+  secondaryAction={{ href: '/admin/incidents', label: '← All incidents' }}>
+  <p class="note" style="margin-bottom:16px">A manual declare is a high-weight manual-source observation — it opens a human-owned incident through the same engine the monitors use.</p>
+  <ResourceForm resource={resource} mode="create" action="/admin/incidents/new"
+    dynamic={{ components }} error={error} submitLabel="Publish incident" submitNeutral cancelHref="/admin/incidents" />
+</AdminShell>

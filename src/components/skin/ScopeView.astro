@@ -1,0 +1,21 @@
+---
+/**
+ * Renders the normalized ScopeView in the single house skin (Monkey Labs
+ * blueprint). One skin for every scope — brands differ by name + data only,
+ * never by typography or color.
+ */
+import type { ScopeView } from '../../lib/view';
+import SkinML from './SkinML.astro';
+
+interface Props {
+  view: ScopeView;
+  /** Kept for call-site compatibility; the public site uses one skin. */
+  scope: string | null;
+  companyName: string;
+  /** Affected-node trail for an inline incident's "affected" line. */
+  affectedPath: string[];
+}
+
+const { view, companyName, affectedPath } = Astro.props;
+---
+<SkinML view={view} companyName={companyName} affectedPath={affectedPath} />

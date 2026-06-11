@@ -1,0 +1,39 @@
+---
+/**
+ * Generic create / edit form, assembled from a resource declaration. Renders
+ * every editable field via <Field/>; the parent page only supplies dynamic
+ * option sets and the existing record (for edit). No bespoke per-entity markup.
+ */
+import type { ResourceDecl, FieldOption } from '@/lib/admin/resources';
+import Field from './Field.astro';
+
+interface Props {
+  resource: ResourceDecl;
+  mode: 'create' | 'edit';
+  action: string;            // form POST target
+  record?: Record<string, unknown>;
+  dynamic?: Record<string, FieldOption[]>;
+  error?: string;
+  submitLabel?: string;
+  cancelHref?: string;
+  /** Neutral (not green) submit — for declaring a problem (handoff §5). */
+  submitNeutral?: boolean;
+}
+
+const { resource, mode, action, record = {}, dynamic = {}, error, submitLabel, cancelHref, submitNeutral } = Astro.props;
+
+// Editable fields only; readonly + (on edit) createOnly fields are dropped.
+const fields = resource.fields.filter((f) => {
+  if (f.type === 'readonly') return false;
+  if (mode === 'edit' && f.createOnly) return false;
+  return true;
+});
+---
+<form method="POST" action={action} class="form">
+  {error && <div class="err">{error}</div>}
+  {fields.map((f) => <Field field={f} value={record[f.name]} dynamic={dynamic} />)}
+  <div style="display:flex;gap:10px;margin-top:6px;">
+    <button type="submit" class:list={['btn', submitNeutral ? null : 'pri']}>{submitLabel ?? (mode === 'create' ? `Create ${resource.label.toLowerCase()}` : 'Save changes')}</button>
+    {cancelHref && <a href={cancelHref} class="btn">Cancel</a>}
+  </div>
+</form>

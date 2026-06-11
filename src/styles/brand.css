@@ -1,0 +1,11 @@
+/* ============================================================================
+ * INSTANCE brand layer — part of the Banana Pulse seam.
+ * The per-scope accent palette. Pulse's skins.css ships a brandless neutral
+ * default; this file recolors the accent per `data-scope` (light + dark).
+ * Swap this file (+ pulse.config.ts + /public/brand) for your company.
+ * One block per scope id declared in pulse.config.ts.
+ * ========================================================================== */
+
+html[data-scope='example'] body[data-skinned] { --ac: #0f7a29; }
+
+html[data-theme='dark'][data-scope='example'] body[data-skinned] { --ac: #2bb544; }

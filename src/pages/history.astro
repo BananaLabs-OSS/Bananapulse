@@ -1,0 +1,69 @@
+---
+/**
+ * Incident history — every incident, newest first. Rendered in the public Skin
+ * so it matches the rest of the status site.
+ */
+import Skin from '../layouts/Skin.astro';
+import SkinCrumbs from '../components/skin/SkinCrumbs.astro';
+import { getAllIncidents, countAllIncidents } from '../lib/db-incidents';
+import { severityColor, severityLabel } from '../lib/skin-copy';
+import { incidentStatusLabel, formatDate } from '../lib/types';
+import { brandForScope } from '../lib/skin';
+import type { Incident } from '../lib/types';
+
+const scope = (Astro.locals as any).scope as string | null;
+const PAGE_SIZE = 15;
+const currentPage = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10) || 1);
+const offset = (currentPage - 1) * PAGE_SIZE;
+
+let incidents: Incident[] = [];
+let totalPages = 1;
+try {
+  const total = await countAllIncidents({ product: scope || undefined });
+  totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  incidents = await getAllIncidents({ product: scope || undefined, limit: PAGE_SIZE, offset });
+} catch (_e) {
+  // DB unreachable
+}
+
+const crumbs = [{ label: brandForScope(scope).wordmark, href: '/' }, { label: 'History' }];
+---
+<Skin scope={scope} title="Incident history">
+  <div class="banner" style="--bc:var(--ac)">
+    <span class="ic"></span>
+    <div>
+      <h1>Incident history</h1>
+      <p>Every incident, newest first.</p>
+    </div>
+  </div>
+
+  <SkinCrumbs crumbs={crumbs} />
+
+  {incidents.length > 0 ? (
+    <>
+      <div class="seclbl">Past incidents</div>
+      {incidents.map((i) => {
+        const col = i.status === 'resolved' ? 'var(--ok)' : severityColor(i.severity);
+        return (
+          <a class="row" href={`/incident/${i.id}`} style={`--leg:${col}`}>
+            <div>
+              <div class="nm">{i.title}</div>
+              <div class="kd">{i.id} · {incidentStatusLabel(i.status).toLowerCase()} · {formatDate(i.started)}</div>
+            </div>
+            <span class="st" style={`color:${col}`}>{severityLabel(i.severity)}</span>
+            <span class="chev">›</span>
+          </a>
+        );
+      })}
+      {totalPages > 1 && (
+        <div class="crumbs" style="margin-top:18px">
+          {currentPage > 1 && <a href={`/history?page=${currentPage - 1}`}>← Newer</a>}
+          <span class="sep">page {currentPage} / {totalPages}</span>
+          {currentPage < totalPages && <a href={`/history?page=${currentPage + 1}`}>Older →</a>}
+        </div>
+      )}
+    </>
+  ) : (
+    <p class="mono" style="color:var(--muted);margin-top:24px;font-size:13px">No incidents reported yet.</p>
+  )}
+</Skin>

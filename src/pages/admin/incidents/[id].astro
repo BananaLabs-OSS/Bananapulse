@@ -1,0 +1,159 @@
+---
+/**
+ * Incident detail — the recurring human surface during an event.
+ *
+ * What the human does here is narration + override, never status-flipping the
+ * engine's truth:
+ *   - move status (investigating→…→resolved): human-owned narration; writes the
+ *     field + a timeline entry.
+ *   - post update: pure narration (timeline entry).
+ *   - override level: an engine concern → routed through recordManualOverride so
+ *     the read model and the incident agree; never a hand-set severity field.
+ *   - force-resolve: routed through recordManualOverride (signal 'ok').
+ */
+import AdminShell from '@/layouts/AdminShell.astro';
+import { db } from '@/db';
+import { incidents, incidentTimeline } from '@/db/schema';
+import { eq, desc } from 'drizzle-orm';
+import { nanoid } from 'nanoid';
+import { getManualSource } from '@/lib/sources';
+import { recordManualOverride, type Level } from '@/lib/quorum';
+import { pillHtml, fmtDateTime } from '@/lib/admin/view';
+import { navCounts, propertyOptions } from '@/lib/admin/nav';
+
+const { id } = Astro.params;
+if (!id) return Astro.redirect('/admin/incidents');
+const who = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const action = form.get('_action')?.toString();
+  const cur = (await db.select().from(incidents).where(eq(incidents.id, id)))[0];
+
+  if (cur) {
+    if (action === 'move_status') {
+      const status = form.get('status')?.toString() ?? '';
+      const note = form.get('note')?.toString() || `Status moved to ${status}.`;
+      // Whitelist the status — a forged value must not reach incidents.status.
+      const ALLOWED_STATUS = ['investigating', 'identified', 'monitoring', 'resolved'];
+      if (status === 'resolved') {
+        // Force-resolve through the engine (manual source clears its read).
+        const manual = await getManualSource();
+        await recordManualOverride({ manualSourceId: manual.id, componentId: cur.affects[0], signal: 'ok', body: note, author: who });
+      } else if (ALLOWED_STATUS.includes(status)) {
+        await db.update(incidents).set({ status }).where(eq(incidents.id, id));
+        await db.insert(incidentTimeline).values({ id: nanoid(), incidentId: id, at: new Date(), label: status.toUpperCase(), body: note, author: who });
+      }
+    }
+
+    if (action === 'post_update') {
+      const body = form.get('body')?.toString();
+      if (body) {
+        await db.insert(incidentTimeline).values({ id: nanoid(), incidentId: id, at: new Date(), label: cur.status.toUpperCase(), body, author: who });
+      }
+    }
+
+    if (action === 'override_level') {
+      const severity = form.get('severity')?.toString() ?? 'major';
+      const level: Level = severity === 'major' ? 'major' : 'degraded';
+      const note = form.get('note')?.toString() || `Level overridden to ${severity} by ${who}.`;
+      const manual = await getManualSource();
+      await recordManualOverride({ manualSourceId: manual.id, componentId: cur.affects[0], signal: level === 'major' ? 'down' : 'degraded', level, body: note, author: who });
+    }
+
+    if (action === 'resolve') {
+      const note = form.get('note')?.toString() || `Resolved by ${who}.`;
+      const manual = await getManualSource();
+      await recordManualOverride({ manualSourceId: manual.id, componentId: cur.affects[0], signal: 'ok', body: note, author: who });
+    }
+  }
+  return Astro.redirect(`/admin/incidents/${id}`);
+}
+
+const rows = await db.select().from(incidents).where(eq(incidents.id, id));
+const incident = rows[0];
+if (!incident) return Astro.redirect('/admin/incidents');
+
+const timeline = await db.select().from(incidentTimeline).where(eq(incidentTimeline.incidentId, id)).orderBy(desc(incidentTimeline.at));
+// The engine owns 'investigating'/'identified' on its OWN (auto) incidents via
+// confidence (vantage count) — exposing them as manual toggles there just invites
+// fighting the engine. Humans own the RECOVERY direction (monitoring/resolved).
+// Human-declared incidents keep the full lifecycle.
+const states = incident.auto
+  ? ['monitoring', 'resolved']
+  : ['investigating', 'identified', 'monitoring', 'resolved'];
+const counts = await navCounts();
+const properties = await propertyOptions();
+---
+<AdminShell title={incident.title} active="incidents" adminEmail={who} counts={counts} property="all" properties={properties}
+  secondaryAction={{ href: '/admin/incidents', label: '← All incidents' }}>
+
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+    <span set:html={pillHtml(incident.severity)} />
+    <span set:html={pillHtml(incident.status)} />
+    <span set:html={pillHtml(incident.auto ? 'declared' : 'ok', incident.auto ? 'auto' : 'manual')} />
+  </div>
+  <p class="note" style="margin-bottom:20px">
+    {incident.id} · started {fmtDateTime(incident.startedAt)}
+    {incident.resolvedAt && <span> · resolved {fmtDateTime(incident.resolvedAt)}</span>}
+    {' · affects '}{incident.affects.join(', ')}
+  </p>
+
+  {incident.status !== 'resolved' && (
+    <div class="form" style="margin-bottom:18px">
+      <label class="seclbl" style="margin-top:0">Move status</label>
+      <div class="tabs">
+        {states.map((s) => (
+          <form method="POST" style="display:inline">
+            <input type="hidden" name="_action" value="move_status" />
+            <input type="hidden" name="status" value={s} />
+            <button class:list={[{ on: incident.status === s }]} type="submit">{s}</button>
+          </form>
+        ))}
+      </div>
+      <p class="note">{incident.auto ? 'Engine-detected incident: it sets investigating/identified itself from how many vantages agree — you own the recovery (monitoring/resolved). ' : 'Status is human-owned narration. '}"Resolved" force-resolves through the engine.</p>
+    </div>
+  )}
+
+  {incident.status !== 'resolved' && (
+    <form method="POST" class="form" style="margin-bottom:18px">
+      <input type="hidden" name="_action" value="post_update" />
+      <div class="fld"><label>Post an update</label><textarea name="body" placeholder="Latest update — what changed, what you're doing next…" required></textarea></div>
+      <button class="btn pri" type="submit">Post update</button>
+    </form>
+  )}
+
+  {incident.status !== 'resolved' && (
+    <form method="POST" class="form" style="margin-bottom:18px">
+      <input type="hidden" name="_action" value="override_level" />
+      <div class="fld"><label>Override level</label>
+        <select name="severity">
+          <option value="moderate" selected={incident.severity === 'moderate'}>Moderate / degraded</option>
+          <option value="major" selected={incident.severity === 'major'}>Major / outage</option>
+        </select>
+      </div>
+      <div class="fld"><label>Note (optional)</label><input type="text" name="note" placeholder="Why the level changed" /></div>
+      <button class="btn" type="submit">Override level</button>
+      <p class="note">Routes through the engine as a high-weight manual observation — never a hand-set field.</p>
+    </form>
+  )}
+
+  {incident.status !== 'resolved' && (
+    <form method="POST" class="form" style="margin-bottom:18px">
+      <input type="hidden" name="_action" value="resolve" />
+      <div class="fld"><label>Force-resolve</label><input type="text" name="note" placeholder="Resolution note (optional)" /></div>
+      <button class="btn danger" type="submit">Force-resolve incident</button>
+    </form>
+  )}
+
+  <div class="seclbl">Timeline</div>
+  <div class="timeline">
+    {timeline.length === 0 && <div class="ev muted">No timeline entries yet.</div>}
+    {timeline.map((e) => (
+      <div class="ev">
+        <b set:html={pillHtml(e.label.toLowerCase(), e.label)} /> <span class="ts">{fmtDateTime(e.at)} · {e.author}</span>
+        <div style="margin-top:5px;color:var(--txt);font-family:var(--sans)">{e.body}</div>
+      </div>
+    ))}
+  </div>
+</AdminShell>

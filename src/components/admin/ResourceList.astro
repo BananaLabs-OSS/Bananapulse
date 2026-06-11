@@ -1,0 +1,77 @@
+---
+/**
+ * Generic list table, assembled from a resource declaration. Columns come from
+ * `listColumns`; each row is rendered from the supplied records. Cell rendering
+ * is driven by field type (pills for status/severity, mono for dates/ids).
+ * Pre-rendered cell HTML can be supplied per (rowId, column) for special cases.
+ */
+import type { ResourceDecl } from '@/lib/admin/resources';
+import { pillHtml, fmtDate } from '@/lib/admin/view';
+
+interface Props {
+  resource: ResourceDecl;
+  rows: Record<string, any>[];
+  /** Per-row link target (detail/edit). null = non-clickable row. */
+  hrefFor?: (row: Record<string, any>) => string | null;
+  emptyText?: string;
+  /** Override the rendered HTML for a given (rowId|column). */
+  cellOverrides?: Record<string, string>;
+  idKey?: string;
+}
+
+const { resource, rows, hrefFor, emptyText = 'Nothing here.', cellOverrides = {}, idKey = 'id' } = Astro.props;
+const cols = resource.listColumns;
+const tmpl = cols.map((_, i) => (i === 0 ? '1.6fr' : '1fr')).join(' ') + ' 30px';
+
+const PILL_FIELDS = new Set(['status', 'severity', 'kind', 'signal', 'state', 'launched']);
+const DATE_FIELDS = new Set(['startedAt', 'createdAt', 'confirmedAt', 'scheduledStart', 'scheduledEnd', 'resolvedAt']);
+
+function fieldLabel(name: string): string {
+  return resource.fields.find((f) => f.name === name)?.label ?? name;
+}
+
+/** HTML-escape a free-text value before it is emitted via set:html. */
+function esc(s: unknown): string {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function cellHtml(row: Record<string, any>, col: string, first: boolean): string {
+  const key = `${row[idKey]}|${col}`;
+  if (cellOverrides[key]) return cellOverrides[key];
+  let val = row[col];
+  if (val == null || val === '') return `<span class="muted">—</span>`;
+  if (col === 'brandColor') {
+    return `<span class="muted" style="display:inline-flex;align-items:center;gap:6px"><span style="width:11px;height:11px;border-radius:3px;background:${esc(val)};border:1px solid var(--line2)"></span>${esc(val)}</span>`;
+  }
+  if (PILL_FIELDS.has(col)) {
+    if (col === 'launched') return pillHtml(val ? 'operational' : 'stale', val ? 'launched' : 'draft');
+    return pillHtml(String(val));
+  }
+  if (DATE_FIELDS.has(col)) return `<span class="muted">${esc(fmtDate(val))}</span>`;
+  if (first) return `<span class="t">${esc(val)}</span>`;
+  return `<span class="muted">${esc(val)}</span>`;
+}
+---
+<div class="tbl">
+  <div class="tr head" style={`grid-template-columns:${tmpl}`}>
+    {cols.map((c) => <span>{fieldLabel(c)}</span>)}
+    <span></span>
+  </div>
+  {rows.length === 0 && (
+    <div class="tr" style={`grid-template-columns:${tmpl}`}><span class="muted">{emptyText}</span></div>
+  )}
+  {rows.map((row) => {
+    const href = hrefFor ? hrefFor(row) : null;
+    return (
+      <a class:list={['tr', { link: !!href }]} style={`grid-template-columns:${tmpl}`} href={href ?? undefined}>
+        {cols.map((c, i) => <span set:html={cellHtml(row, c, i === 0)} />)}
+        <span class="chev">{href ? '›' : ''}</span>
+      </a>
+    );
+  })}
+</div>

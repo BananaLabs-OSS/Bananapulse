@@ -1,0 +1,76 @@
+---
+/**
+ * Generic form field — renders one FieldDecl. Driven entirely by the
+ * declaration's `type`, so forms are assembled from declarations, never
+ * hand-built. Dynamic option sets (optionsKey) are passed in via `dynamic`.
+ */
+import type { FieldDecl, FieldOption } from '@/lib/admin/resources';
+
+interface Props {
+  field: FieldDecl;
+  value?: unknown;
+  /** Dynamic option sets keyed by FieldDecl.optionsKey. */
+  dynamic?: Record<string, FieldOption[]>;
+}
+
+const { field, value, dynamic = {} } = Astro.props;
+const opts: FieldOption[] = field.options ?? (field.optionsKey ? dynamic[field.optionsKey] ?? [] : []);
+const v = value;
+const selected = new Set(Array.isArray(v) ? v.map(String) : v != null ? [String(v)] : []);
+
+function dtLocal(val: unknown): string {
+  if (!val) return '';
+  const d = val instanceof Date ? val : new Date(String(val));
+  if (isNaN(d.getTime())) return '';
+  // yyyy-MM-ddThh:mm for datetime-local
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+---
+<div class="fld">
+  <label for={field.name}>{field.label}{field.required && ' *'}</label>
+
+  {field.type === 'text' && (
+    <input type="text" id={field.name} name={field.name} placeholder={field.placeholder} value={v != null ? String(v) : ''} required={field.required} />
+  )}
+
+  {field.type === 'number' && (
+    <input type="number" id={field.name} name={field.name} placeholder={field.placeholder} value={v != null ? String(v) : ''} required={field.required} />
+  )}
+
+  {field.type === 'datetime' && (
+    <input type="datetime-local" id={field.name} name={field.name} value={dtLocal(v)} required={field.required} />
+  )}
+
+  {field.type === 'color' && (
+    <input type="text" id={field.name} name={field.name} placeholder={field.placeholder ?? '#2456E8'} value={v != null ? String(v) : ''} class="mono" />
+  )}
+
+  {field.type === 'textarea' && (
+    <textarea id={field.name} name={field.name} placeholder={field.placeholder} required={field.required}>{v != null ? String(v) : ''}</textarea>
+  )}
+
+  {field.type === 'boolean' && (
+    <label class="check"><input type="checkbox" name={field.name} value="true" checked={v === true || v === 'true'} /> {field.placeholder ?? 'Yes'}</label>
+  )}
+
+  {field.type === 'select' && (
+    <select id={field.name} name={field.name} required={field.required}>
+      {opts.map((o) => <option value={o.value} selected={selected.has(o.value)}>{o.label}</option>)}
+    </select>
+  )}
+
+  {field.type === 'multiselect' && (
+    opts.length === 0
+      ? <div class="note">No options available yet.</div>
+      : opts.map((o) => (
+          <label class="check"><input type="checkbox" name={field.name} value={o.value} checked={selected.has(o.value)} /> {o.label}</label>
+        ))
+  )}
+
+  {field.type === 'readonly' && (
+    <div class="muted" style="overflow:visible;white-space:normal;">{v != null && v !== '' ? String(v) : '—'}</div>
+  )}
+
+  {field.hint && <div class="note">{field.hint}</div>}
+</div>

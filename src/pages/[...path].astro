@@ -1,0 +1,33 @@
+---
+/**
+ * Public node view — one route for the whole component tree at any depth.
+ * The URL is relative to the entry domain's landing root (the scope), so:
+ *   status.monkeylabs.gg/sessions/provisioner   (umbrella root = Monkey Labs)
+ *   status.sessions.gg/provisioner              (root = Sessions)
+ * Reuses the skin; the tree + rollup come from lib/components.
+ */
+import Skin from '../layouts/Skin.astro';
+import ScopeView from '../components/skin/ScopeView.astro';
+import NotFound from '../components/skin/NotFound.astro';
+import { buildComponentView } from '../lib/components';
+import { COMPANY } from '../pulse.config';
+
+const scope = (Astro.locals as any).scope as string | null;
+const raw = Astro.params.path;
+const segs = raw ? raw.split('/').filter(Boolean) : [];
+
+let view = null;
+try {
+  view = await buildComponentView(scope, segs);
+} catch (_e) {
+  // DB unreachable — fall through to a styled not-found.
+}
+if (!view) Astro.response.status = 404;
+
+const affectedPath = view ? view.crumbs.map((c) => c.label) : [];
+---
+<Skin scope={scope} title={view ? `${view.nodeName} Status` : 'Not found'}>
+  {view
+    ? <ScopeView view={view} scope={scope} companyName={COMPANY} affectedPath={affectedPath} />
+    : <NotFound message="That page doesn't exist on this status site." />}
+</Skin>

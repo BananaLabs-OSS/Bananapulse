@@ -1,0 +1,27 @@
+/* Tokens — palette, fonts, status + scope classes. */
+
+:root {
+  /* base palette */
+  --bg:           #1a1815;
+  --text:         #f0e8d4;
+  --body:         #d8cdb4;
+  --dim:          #aca28c;
+  --faint:        #847a67;
+  --ghost:        #524a3e;
+  --line:         #2e2924;
+  --line-strong:  #3d3630;
+
+  /* status colors — fixed, never brand-driven */
+  --s-ok:         #22c55e;
+  --s-ok-bg:      rgba(34, 197, 94, 0.10);
+  --s-degraded:   #f0c757;
+  --s-degraded-bg:rgba(240, 199, 87, 0.12);
+  --s-outage:     #ef6b6b;
+  --s-outage-bg:  rgba(239, 107, 107, 0.10);
+  --s-maint:      #5b9eff;
+  --s-maint-bg:   rgba(91, 158, 255, 0.10);
+
+  /* typography */
+  --sans: 'DM Sans', system-ui, -apple-system, sans-serif;
+  --mono: 'DM Mono', 'JetBrains Mono', ui-monospace, monospace;
+}

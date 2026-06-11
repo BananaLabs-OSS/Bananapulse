@@ -1,40 +1,31 @@
 {
   "name": "bananapulse",
-  "type": "module",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "Astro integration for self-deploy status pages. Pure static, no vendor lock — drop into any Astro site, deploy to any static host.",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "exports": {
-    ".": "./src/index.ts",
-    "./routes/index.astro": "./src/routes/index.astro",
-    "./routes/incidents.astro": "./src/routes/incidents.astro",
-    "./styles/base.css": "./src/styles/base.css",
-    "./styles/default-theme.css": "./src/styles/default-theme.css",
-    "./components/*": "./src/components/*",
-    "./lib/*": "./src/lib/*"
-  },
-  "files": [
-    "src",
-    "README.md",
-    "DEPLOY.md"
-  ],
+  "type": "module",
   "scripts": {
-    "dev": "cd dev && astro dev",
-    "build": "cd dev && astro build",
-    "preview": "cd dev && astro preview",
-    "check": "cd dev && astro check",
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "astro": "astro",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "peerDependencies": {
-    "astro": "^5.7.0"
+  "dependencies": {
+    "@astrojs/netlify": "^6.3.0",
+    "astro": "^5.7.0",
+    "drizzle-orm": "^0.44.0",
+    "nanoid": "^5.1.0",
+    "postgres": "^3.4.5"
   },
   "devDependencies": {
-    "@astrojs/check": "^0.9.6",
-    "@types/node": "^25.6.0",
-    "astro": "^5.7.0",
+    "@astrojs/check": "^0.9.4",
+    "@types/node": "^22.0.0",
+    "drizzle-kit": "^0.30.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.8"
   }

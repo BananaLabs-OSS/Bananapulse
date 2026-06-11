@@ -1,0 +1,141 @@
+/* ============================================================================
+ * Public status skin — ONE design, scope-driven branding.
+ * Ported from the status.html mock onto the white Monkey Labs base.
+ *
+ *   <html data-scope="monkeylabs|sessions|bananalabs">  → accent + wordmark + logo
+ *   <html data-theme="dark">                            → light/dark (persisted)
+ *
+ * Brand differs ONLY by --ac + wordmark + logo (cheap token swap, not 3 skins).
+ * Status is carried by the locked palette + a quiet-when-healthy capsule "leg".
+ * White base + isometric hatch keeps it a sibling of monkeylabs.gg. All tokens
+ * are scoped to body[data-skinned] so admin/Default pages are untouched.
+ * ========================================================================== */
+
+/* ---- tokens: light (white base) ---- */
+body[data-skinned] {
+  --paper: #fff;
+  --ink: #14160e;
+  --muted: #51564a;
+  --faint: #8c9081;
+  --line: #e3e1d6;
+  --line2: #d2cfc0;
+  --mono: 'IBM Plex Mono', monospace;
+  --ac: #475569; /* brandless Pulse default — instance brand.css overrides per data-scope */
+  --ok: #1ea63a;
+  --maint: #2f6bf0;
+  --degr: #cf9f28;
+  --part: #ea7317;
+  --major: #cf2f37;
+}
+/* per-scope accents live in the instance layer → styles/brand.css */
+
+/* ---- tokens: dark ---- */
+html[data-theme='dark'] body[data-skinned] {
+  --paper: #10140d;
+  --ink: #e9efe1;
+  --muted: #9aa48c;
+  --faint: #5d6650;
+  --line: #202819;
+  --line2: #2c3522;
+  --ac: #64748b; /* brandless Pulse dark default — brand.css overrides per scope */
+  --ok: #3fd14f;
+  --maint: #5b8bff;
+  --degr: #e6c04a;
+  --part: #f0883e;
+  --major: #e5484d;
+}
+/* dark per-scope accents live in the instance layer → styles/brand.css */
+
+/* ---- base + isometric hatch (sticky-footer flex column) ---- */
+body[data-skinned] {
+  background: #fafafa;
+  color: var(--ink);
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-image:
+    repeating-linear-gradient(30deg, transparent 0 39px, rgba(20, 20, 20, 0.05) 39px 40px),
+    repeating-linear-gradient(-30deg, transparent 0 39px, rgba(20, 20, 20, 0.05) 39px 40px);
+}
+html[data-theme='dark'] body[data-skinned] {
+  background: #0a0d08;
+  background-image:
+    repeating-linear-gradient(30deg, transparent 0 39px, rgba(120, 200, 120, 0.05) 39px 40px),
+    repeating-linear-gradient(-30deg, transparent 0 39px, rgba(120, 200, 120, 0.05) 39px 40px);
+}
+body[data-skinned] a { color: inherit; text-decoration: none; }
+body[data-skinned] .wrap { width: 100%; max-width: 820px; margin: 0 auto; padding: 0 22px; }
+body[data-skinned] .mono { font-family: var(--mono); }
+body[data-skinned] .main { flex: 1 0 auto; }
+
+/* ---- header ---- */
+body[data-skinned] .top {
+  border-bottom: 1px solid var(--line); background: rgba(250, 250, 250, 0.85);
+  backdrop-filter: blur(8px); position: sticky; top: 0; z-index: 10;
+}
+html[data-theme='dark'] body[data-skinned] .top { background: rgba(10, 13, 8, 0.85); }
+body[data-skinned] .top .wrap { display: flex; align-items: center; gap: 11px; height: 62px; }
+body[data-skinned] .brand { display: flex; align-items: center; gap: 11px; font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
+body[data-skinned] .chip { width: 38px; height: 38px; border-radius: 9px; background: #0b0e0a; display: grid; place-items: center; flex: none; }
+body[data-skinned] .logomark { width: 24px; height: 24px; object-fit: contain; display: block; }
+body[data-skinned] .brand .sub { font-family: var(--mono); font-size: 12px; color: var(--faint); font-weight: 500; }
+body[data-skinned] .top .sp { flex: 1; }
+body[data-skinned] .top a.nav { font-family: var(--mono); font-size: 12.5px; color: var(--muted); padding: 6px 9px; border-radius: 7px; }
+body[data-skinned] .top a.nav:hover { color: var(--ink); }
+body[data-skinned] .tt { background: transparent; border: 1px solid var(--line2); border-radius: 8px; width: 34px; height: 34px; cursor: pointer; display: grid; place-items: center; color: var(--muted); margin-left: 4px; }
+body[data-skinned] .tt:hover { color: var(--ink); }
+body[data-skinned] .tt svg { width: 15px; height: 15px; }
+body[data-skinned] .tt .sun { display: none; }
+body[data-skinned] .tt .moon { display: block; }
+html[data-theme='dark'] body[data-skinned] .tt .moon { display: none; }
+html[data-theme='dark'] body[data-skinned] .tt .sun { display: block; }
+
+/* ---- banner ---- */
+body[data-skinned] .banner { margin: 22px 0 6px; background: var(--paper); border: 1px solid var(--line2); border-radius: 13px; padding: 20px 22px; display: flex; align-items: center; gap: 16px; position: relative; overflow: hidden; }
+body[data-skinned] .banner::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--bc, var(--ac)); }
+body[data-skinned] .banner .ic { width: 10px; height: 10px; border-radius: 50%; background: var(--bc, var(--ac)); flex: none; }
+body[data-skinned] .banner h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; }
+body[data-skinned] .banner p { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 3px; }
+
+/* ---- crumbs + section label ---- */
+body[data-skinned] .crumbs { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-family: var(--mono); font-size: 12.5px; margin: 18px 0 4px; color: var(--muted); }
+body[data-skinned] .crumbs a { padding: 3px 7px; border-radius: 6px; cursor: pointer; }
+body[data-skinned] .crumbs a:hover { color: var(--ink); }
+body[data-skinned] .crumbs .sep { color: var(--faint); }
+body[data-skinned] .crumbs .here { color: var(--ink); font-weight: 600; }
+body[data-skinned] .seclbl { font-family: var(--mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--faint); margin: 26px 0 11px; display: flex; align-items: center; gap: 10px; }
+body[data-skinned] .seclbl::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+
+/* ---- rows (capsule leg = status indicator; quiet when healthy) ---- */
+body[data-skinned] .row { position: relative; display: flex; align-items: center; gap: 14px; background: var(--paper); border: 1px solid var(--line); border-radius: 7px; padding: 14px 16px 14px 20px; margin-bottom: 8px; cursor: pointer; transition: 0.14s; }
+body[data-skinned] .row::before { content: ''; position: absolute; left: 0; top: 16%; bottom: 16%; width: 6px; border-radius: 0 6px 6px 0; background: var(--leg, var(--line2)); }
+body[data-skinned] .row:hover { border-color: var(--line2); transform: translateX(2px); }
+body[data-skinned] .row .nm { font-weight: 600; font-size: 15.5px; letter-spacing: -0.01em; }
+body[data-skinned] .row .kd { font-family: var(--mono); font-size: 10px; color: var(--faint); text-transform: uppercase; letter-spacing: 0.12em; margin-top: 2px; }
+body[data-skinned] .row .badge { font-family: var(--mono); font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
+body[data-skinned] .row .st { font-family: var(--mono); font-size: 12px; margin-left: auto; font-weight: 500; }
+body[data-skinned] .row .chev { color: var(--faint); font-family: var(--mono); }
+
+/* ---- incident detail ---- */
+body[data-skinned] .back { display: inline-flex; gap: 7px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin: 10px 0 4px; cursor: pointer; }
+body[data-skinned] .back:hover { color: var(--ink); }
+body[data-skinned] .pill { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.07em; padding: 3px 8px; border-radius: 5px; font-weight: 600; display: inline-block; }
+body[data-skinned] .idet h2 { font-size: 23px; font-weight: 700; letter-spacing: -0.02em; margin: 8px 0; }
+body[data-skinned] .idet .tags { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; font-family: var(--mono); font-size: 11px; }
+body[data-skinned] .idet .tags span { padding: 4px 9px; border-radius: 6px; border: 1px solid var(--line2); color: var(--muted); }
+body[data-skinned] .affected { font-family: var(--mono); font-size: 12.5px; background: var(--paper); border: 1px solid var(--line2); border-radius: 9px; padding: 11px 13px; margin: 14px 0; }
+body[data-skinned] .affected b { color: var(--ac); }
+body[data-skinned] .timeline { border-left: 2px solid var(--line2); margin-left: 6px; padding-left: 18px; margin-top: 16px; }
+body[data-skinned] .evt { position: relative; padding-bottom: 20px; }
+body[data-skinned] .evt::before { content: ''; position: absolute; left: -25px; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--paper); border: 2px solid var(--ec, var(--muted)); }
+body[data-skinned] .evt .es { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--ec); font-weight: 600; }
+body[data-skinned] .evt .et { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-left: 8px; }
+body[data-skinned] .evt p { margin-top: 5px; font-size: 14.5px; }
+
+/* ---- footer ---- */
+body[data-skinned] footer { border-top: 1px solid var(--line); padding: 24px 0 60px; }
+body[data-skinned] footer .wrap { font-family: var(--mono); font-size: 12px; color: var(--faint); }
+body[data-skinned] footer .dom { color: var(--muted); margin-top: 5px; }

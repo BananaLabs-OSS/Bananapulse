@@ -1,0 +1,56 @@
+---
+/**
+ * Shared incident detail — the timeline narration. Incident text lives at the
+ * node it's attached to. Used inline (a leaf with a single active incident) and
+ * on the standalone incident page. Shows the auto-vs-manual provenance marker.
+ */
+import type { Incident } from '../../lib/types';
+import { incidentStatusLabel, formatTime, formatDate } from '../../lib/types';
+import { severityColor, severityLabel, eventColor } from '../../lib/skin-copy';
+
+interface Props {
+  incident: Incident;
+  /** e.g. ['Sessions', 'Provisioner'] — last item bolded as the attached node. */
+  affectedPath: string[];
+  inline?: boolean;
+}
+
+const { incident, affectedPath, inline = false } = Astro.props;
+const sevColor = severityColor(incident.severity);
+const startLabel = `${formatDate(incident.started)} ${formatTime(incident.started)}`;
+// auto !== false → engine-detected (default); false → human-reported.
+const manual = incident.auto === false;
+---
+<div class="idet" style={inline ? 'margin-top:6px' : ''}>
+  <span class="pill" style={`background:transparent;color:${sevColor};border:1px solid ${sevColor}`}>
+    {severityLabel(incident.severity)}
+  </span>
+  <h2>{incident.title}</h2>
+  <div class="tags">
+    <span>{incident.id}</span>
+    <span>{incidentStatusLabel(incident.status).toLowerCase()}</span>
+    <span>since {startLabel} UTC</span>
+    <span style={`color:${manual ? 'var(--ac)' : 'var(--muted)'}`}>{manual ? 'reported manually' : 'detected automatically'}</span>
+  </div>
+
+  <div class="affected">
+    affected&nbsp;&nbsp;
+    {affectedPath.map((seg, i) => (
+      <>
+        {i > 0 && ' › '}
+        {i === affectedPath.length - 1 ? <b>{seg}</b> : <span>{seg}</span>}
+      </>
+    ))}
+  </div>
+
+  <div class="seclbl">Updates</div>
+  <div class="timeline">
+    {incident.timeline.map((u) => (
+      <div class="evt" style={`--ec:${eventColor(u.status)}`}>
+        <span class="es">{u.status}</span>
+        <span class="et">{formatTime(u.timestamp)}</span>
+        <p>{u.body}</p>
+      </div>
+    ))}
+  </div>
+</div>

@@ -1,0 +1,97 @@
+---
+/**
+ * The one public skin body — banner + rolled-up child rows.
+ * One level of detail: shows direct children's rolled-up status; a leaf with a
+ * single active incident renders it inline; multiple → list then drill.
+ * Quiet-when-healthy: operational rows get a grey leg + muted label; only
+ * degraded/outage rows carry status color on the capsule leg.
+ */
+import type { ScopeView } from '../../lib/view';
+import { STATUS_COLOR, STATUS_LABEL, severityColor, severityLabel } from '../../lib/skin-copy';
+import { incidentStatusLabel, formatDate, formatTime } from '../../lib/types';
+import SkinCrumbs from './SkinCrumbs.astro';
+import IncidentDetail from './IncidentDetail.astro';
+
+interface Props {
+  view: ScopeView;
+  companyName: string;
+  affectedPath: string[];
+}
+
+const { view, affectedPath } = Astro.props;
+const ok = view.status === 'operational';
+// Healthy banner shows the brand accent; a problem banner shows the status color.
+const bannerColor = ok ? 'var(--ac)' : STATUS_COLOR[view.status];
+
+function affectedHeadline(): string {
+  const names = view.affectedChildNames;
+  if (names.length === 0) return 'Some systems affected';
+  if (names.length === 1) return `${names[0]} is having problems`;
+  return `Issues in ${names.slice(0, -1).join(', ')} and ${names.slice(-1)}`;
+}
+
+const headline = view.isRoot
+  ? (ok ? 'All systems operational' : affectedHeadline())
+  : `${view.nodeName} — ${STATUS_LABEL[view.status]}`;
+
+const pathLabel = view.crumbs.map((c) => c.label).join(' / ');
+const inlineSingle = view.children.length === 0 && view.attachedIncidents.length === 1;
+const showList = view.attachedIncidents.length > 0 && !inlineSingle;
+// Worst-first per the disclosure rule.
+const SEV_RANK: Record<string, number> = { major: 3, moderate: 2, minor: 1 };
+const sortedIncidents = [...view.attachedIncidents].sort((a, b) => (SEV_RANK[b.severity] ?? 0) - (SEV_RANK[a.severity] ?? 0));
+---
+<div class="banner" style={`--bc:${bannerColor}`}>
+  <span class="ic"></span>
+  <div>
+    <h1>{headline}</h1>
+    <p>{pathLabel}{view.maintCount ? `  ·  ${view.maintCount} scheduled` : ''}</p>
+  </div>
+</div>
+
+<SkinCrumbs crumbs={view.crumbs} />
+
+{inlineSingle && (
+  <IncidentDetail incident={view.attachedIncidents[0]} affectedPath={affectedPath} inline />
+)}
+
+{showList && (
+  <>
+    <div class="seclbl">Active incidents</div>
+    {sortedIncidents.map((i) => (
+      <a class="row" href={`/incident/${i.id}`} style={`--leg:${severityColor(i.severity)}`}>
+        <div>
+          <div class="nm">{i.title}</div>
+          <div class="kd">{i.id} · {incidentStatusLabel(i.status).toLowerCase()} · {i.auto === false ? 'manual' : 'auto'} · since {formatDate(i.started)} {formatTime(i.started)}</div>
+        </div>
+        <span class="st" style={`color:${severityColor(i.severity)}`}>{severityLabel(i.severity)}</span>
+        <span class="chev">›</span>
+      </a>
+    ))}
+  </>
+)}
+
+{view.children.length > 0 && (
+  <>
+    <div class="seclbl">{view.isRoot ? (view.level === 'umbrella' ? 'Products' : 'Services') : `Within ${view.nodeName}`}</div>
+    {view.children.map((c) => {
+      const quiet = c.status === 'operational';
+      const col = STATUS_COLOR[c.status];
+      return (
+        <a class="row" href={c.href} style={`--leg:${quiet ? 'var(--line2)' : col}`}>
+          <div>
+            <div class="nm">{c.name}</div>
+            <div class="kd">{c.kind}</div>
+          </div>
+          {c.issueCount > 0 ? (
+            <span class="badge" style={`background:color-mix(in srgb, ${col} 13%, transparent);color:${col}`}>{c.issueCount} issue{c.issueCount > 1 ? 's' : ''}</span>
+          ) : c.maintCount > 0 ? (
+            <span class="badge" style="background:color-mix(in srgb, var(--maint) 13%, transparent);color:var(--maint)">{c.maintCount} scheduled</span>
+          ) : null}
+          <span class="st" style={quiet ? 'color:var(--muted)' : `color:${col}`}>{STATUS_LABEL[c.status]}</span>
+          <span class="chev">›</span>
+        </a>
+      );
+    })}
+  </>
+)}

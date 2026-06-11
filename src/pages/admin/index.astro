@@ -1,0 +1,104 @@
+---
+/**
+ * Dashboard — read-only situational view of what the engine sees right now:
+ * active incidents, components in "watch" (1 unconfirmed source), stale sources
+ * (past TTL / reduced coverage), and recent observations. No status-flipping.
+ */
+import AdminShell from '@/layouts/AdminShell.astro';
+import { db } from '@/db';
+import { incidents, components, observations, sources } from '@/db/schema';
+import { ne, desc, sql } from 'drizzle-orm';
+import { pillHtml, fmtDateTime, evaluateAll } from '@/lib/admin/view';
+import { navCounts, propertyOptions } from '@/lib/admin/nav';
+
+const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+const property = Astro.url.searchParams.get('property') ?? 'all';
+
+// Evaluate every component WITHOUT reconciling (read-only situational snapshot).
+let evals: Awaited<ReturnType<typeof evaluateAll>> = [];
+try { evals = await evaluateAll(); } catch { evals = []; }
+const declared = evals.filter((e) => e.state === 'declared');
+const watch = evals.filter((e) => e.state === 'watch');
+const stale = evals.filter((e) => e.reducedCoverage);
+
+const activeIncidents = await db.select().from(incidents).where(ne(incidents.status, 'resolved')).orderBy(desc(incidents.startedAt)).limit(20);
+
+// Map componentId -> name for readable rows.
+const allSvc = await db.select({ id: components.id, name: components.name }).from(components);
+const nameOf = (id: string) => allSvc.find((s) => s.id === id)?.name ?? id;
+
+// Recent observations (last 10) joined with source name.
+const recentObs = await db.execute<{ name: string; component_id: string; signal: string; detail: string | null; observed_at: Date }>(sql`
+  SELECT s.name, o.component_id, o.signal, o.detail, o.observed_at
+  FROM ${observations} o JOIN ${sources} s ON s.id = o.source_id
+  ORDER BY o.observed_at DESC LIMIT 10
+`);
+
+const counts = await navCounts();
+const properties = await propertyOptions();
+---
+<AdminShell title="Dashboard" active="dashboard" adminEmail={adminEmail} counts={counts} property={property} properties={properties}
+  primaryAction={{ href: '/admin/incidents/new', label: '+ Declare incident', variant: 'neutral' }}>
+
+  <div class="kpis">
+    <div class="kpi"><div class="n">{activeIncidents.length}</div><div class:list={['l', { bad: activeIncidents.length > 0 }]}>Active incidents</div></div>
+    <div class="kpi"><div class="n">{declared.length}</div><div class:list={['l', { bad: declared.length > 0 }]}>Components declared</div></div>
+    <div class="kpi"><div class="n">{watch.length}</div><div class:list={['l', { bad: watch.length > 0 }]}>In watch (1 source)</div></div>
+    <div class="kpi"><div class="n">{stale.length}</div><div class:list={['l', { bad: stale.length > 0 }]}>Stale / reduced coverage</div></div>
+  </div>
+
+  <div class="seclbl">Active incidents</div>
+  <div class="tbl">
+    <div class="tr head" style="grid-template-columns:1.6fr .9fr 1fr 30px"><span>Incident</span><span>Severity</span><span>Status</span><span></span></div>
+    {activeIncidents.length === 0 && <div class="tr" style="grid-template-columns:1.6fr .9fr 1fr 30px"><span class="muted">No active incidents — the engine sees everything operational.</span></div>}
+    {activeIncidents.map((i) => (
+      <a class="tr link" style="grid-template-columns:1.6fr .9fr 1fr 30px" href={`/admin/incidents/${i.id}`}>
+        <span class="t">{i.title}</span>
+        <span set:html={pillHtml(i.severity)} />
+        <span set:html={pillHtml(i.status)} />
+        <span class="chev">›</span>
+      </a>
+    ))}
+  </div>
+
+  <div class="seclbl">In watch — one unconfirmed source (never paged)</div>
+  <div class="tbl">
+    <div class="tr head" style="grid-template-columns:1.6fr 1fr 30px"><span>Component</span><span>Reads</span><span></span></div>
+    {watch.length === 0 && <div class="tr" style="grid-template-columns:1.6fr 1fr 30px"><span class="muted">Nothing in watch.</span></div>}
+    {watch.map((e) => (
+      <div class="tr" style="grid-template-columns:1.6fr 1fr 30px">
+        <span class="t">{nameOf(e.componentId)}</span>
+        <span class="muted">{e.nonOkCount} non-ok / {e.totalSources} sources</span>
+        <span></span>
+      </div>
+    ))}
+  </div>
+
+  <div class="seclbl">Stale sources — past TTL (dead-man)</div>
+  <div class="tbl">
+    <div class="tr head" style="grid-template-columns:1.6fr 1fr 30px"><span>Component</span><span>Stale sources</span><span></span></div>
+    {stale.length === 0 && <div class="tr" style="grid-template-columns:1.6fr 1fr 30px"><span class="muted">All expected sources reporting.</span></div>}
+    {stale.map((e) => (
+      <div class="tr" style="grid-template-columns:1.6fr 1fr 30px">
+        <span class="t">{nameOf(e.componentId)}</span>
+        <span class="muted">{e.staleCount} stale</span>
+        <span></span>
+      </div>
+    ))}
+  </div>
+
+  <div class="seclbl">Recent observations</div>
+  <div class="tbl">
+    <div class="tr head" style="grid-template-columns:1fr 1.2fr .8fr 1fr 30px"><span>Source</span><span>Component</span><span>Signal</span><span>At</span><span></span></div>
+    {recentObs.length === 0 && <div class="tr" style="grid-template-columns:1fr 1.2fr .8fr 1fr 30px"><span class="muted">No observations yet.</span></div>}
+    {recentObs.map((o) => (
+      <div class="tr" style="grid-template-columns:1fr 1.2fr .8fr 1fr 30px">
+        <span class="t">{o.name}</span>
+        <span class="muted">{nameOf(o.component_id)}</span>
+        <span set:html={pillHtml(o.signal)} />
+        <span class="muted">{fmtDateTime(o.observed_at)}</span>
+        <span></span>
+      </div>
+    ))}
+  </div>
+</AdminShell>

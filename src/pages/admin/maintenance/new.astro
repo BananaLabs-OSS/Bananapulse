@@ -1,0 +1,53 @@
+---
+/**
+ * Schedule maintenance — generic form from the maintenance declaration.
+ */
+import AdminShell from '@/layouts/AdminShell.astro';
+import ResourceForm from '@/components/admin/ResourceForm.astro';
+import { db } from '@/db';
+import { maintenance } from '@/db/schema';
+import { nanoid } from 'nanoid';
+import { getResource } from '@/lib/admin/resources';
+import { componentExists, isLeafComponent } from '@/lib/components';
+import { componentOptions } from '@/lib/admin/view';
+import { navCounts, propertyOptions } from '@/lib/admin/nav';
+
+const resource = getResource('maintenance')!;
+const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+let error = '';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const title = form.get('title')?.toString() ?? '';
+  const summary = form.get('summary')?.toString() ?? '';
+  const start = form.get('scheduledStart')?.toString() ?? '';
+  const end = form.get('scheduledEnd')?.toString() ?? '';
+  const affects = form.getAll('affects').map((a) => a.toString()).filter(Boolean);
+
+  let unknown = '';
+  for (const a of affects) {
+    if (!(await componentExists(a)) || !(await isLeafComponent(a))) { unknown = a; break; }
+  }
+
+  if (!title || !summary || !start || !end || affects.length === 0) {
+    error = 'All fields are required, including at least one affected component.';
+  } else if (unknown) {
+    error = `Unknown or non-leaf component "${unknown}".`;
+  } else {
+    await db.insert(maintenance).values({
+      id: nanoid(), title, summary,
+      scheduledStart: new Date(start), scheduledEnd: new Date(end), affects,
+    });
+    return Astro.redirect('/admin/maintenance');
+  }
+}
+
+const components = await componentOptions();
+const counts = await navCounts();
+const properties = await propertyOptions();
+---
+<AdminShell title="Schedule maintenance" active="maintenance" adminEmail={adminEmail} counts={counts} property="all" properties={properties}
+  secondaryAction={{ href: '/admin/maintenance', label: '← All maintenance' }}>
+  <ResourceForm resource={resource} mode="create" action="/admin/maintenance/new"
+    dynamic={{ components }} error={error} submitLabel="Schedule" cancelHref="/admin/maintenance" />
+</AdminShell>

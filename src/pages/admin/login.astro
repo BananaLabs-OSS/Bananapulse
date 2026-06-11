@@ -1,0 +1,60 @@
+---
+let message = '';
+import { SITE_TITLE } from '@/pulse.config';
+
+if (Astro.request.method === 'POST') {
+  const form = await Astro.request.formData();
+  const email = form.get('email')?.toString() ?? '';
+  await fetch(new URL('/api/admin/request-link', Astro.url).toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  message = 'If that email is authorized, a login link has been sent. Check your inbox.';
+}
+---
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign in — {SITE_TITLE} Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{min-height:100vh;display:grid;place-items:center;padding:20px;background:#fafafa;color:#14160e;
+      font-family:'IBM Plex Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased;
+      background-image:repeating-linear-gradient(30deg,transparent 0 39px,rgba(20,20,20,.04) 39px 40px),repeating-linear-gradient(-30deg,transparent 0 39px,rgba(20,20,20,.04) 39px 40px)}
+    .card{width:100%;max-width:380px;background:#fff;border:1px solid #d2cfc0;border-radius:14px;padding:30px 28px;text-align:center}
+    .mark{display:inline-flex;align-items:center;gap:10px;font-weight:700;font-size:17px;margin-bottom:16px}
+    .chip{width:30px;height:30px;border-radius:8px;background:#0b0e0a;display:grid;place-items:center}
+    .chip b{width:12px;height:12px;border-radius:50% 50% 50% 50%/60% 60% 40% 40%;background:#50e050;box-shadow:0 0 9px #50e050}
+    .sub{font-family:'IBM Plex Mono',monospace;font-size:12px;color:#8c9081;font-weight:500}
+    h1{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:4px 0 4px}
+    .lead{color:#51564a;font-size:14px;margin-bottom:20px}
+    label{display:block;text-align:left;font-family:'IBM Plex Mono',monospace;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#51564a;margin-bottom:7px}
+    input{width:100%;background:#fff;border:1px solid #d2cfc0;border-radius:9px;padding:11px 12px;font-size:14px;font-family:inherit;color:#14160e;margin-bottom:14px}
+    button{width:100%;background:#0f7a29;color:#fff;border:1px solid #0f7a29;border-radius:9px;padding:11px;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;cursor:pointer}
+    button:hover{background:#1ea63a}
+    .ok{font-family:'IBM Plex Mono',monospace;font-size:13px;color:#51564a;text-align:left;line-height:1.6;background:#f4f5f3;border:1px solid #e3e1d6;border-radius:10px;padding:14px}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="mark"><span class="chip"><b></b></span>Status<span class="sub">/ admin</span></div>
+    <h1>Sign in</h1>
+    <p class="lead">Enter your admin email to receive a login link.</p>
+    {message ? (
+      <div class="ok">{message}</div>
+    ) : (
+      <form method="POST">
+        <label>Email</label>
+        <input type="email" name="email" placeholder="you@example.com" required autofocus />
+        <button type="submit">Send login link</button>
+      </form>
+    )}
+  </div>
+</body>
+</html>

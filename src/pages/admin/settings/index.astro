@@ -1,0 +1,44 @@
+---
+/**
+ * Settings — domains served, default landing scope per domain, page titles.
+ *
+ * Domain → scope mapping is config-as-code (lib/scope.ts) plus each product's
+ * `domain` field; there is no separate settings table (schema is frozen). This
+ * screen surfaces the effective configuration read-only, and lets the per-domain
+ * landing scope be managed where it actually lives — on the product record.
+ */
+import AdminShell from '@/layouts/AdminShell.astro';
+import { getComponentsAdmin } from '@/lib/db-components';
+import { navCounts, propertyOptions } from '@/lib/admin/nav';
+import { COMPANY, SITE_TITLE, STATUS_DOMAIN } from '@/pulse.config';
+
+const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+// Product scopes live on the components tree (kind = product, with a domain).
+const products = (await getComponentsAdmin({ archived: false })).filter((c) => c.kind === 'product');
+const withDomain = products.filter((p) => p.domain);
+const counts = await navCounts();
+const properties = await propertyOptions();
+---
+<AdminShell title="Settings" active="settings" adminEmail={adminEmail} counts={counts} property="all" properties={properties}>
+  <p class="note" style="margin-bottom:16px">Domains served, default landing scope per domain, and page titles. Domain scoping is config-as-code plus each product's domain — edit a product to change where its domain lands.</p>
+
+  <div class="seclbl">Page title</div>
+  <div class="form" style="margin-bottom:20px">
+    <div class="fld"><label>Public page title</label><input type="text" value={SITE_TITLE} readonly /></div>
+    <p class="note">Set in the public skin chrome. Edit per-property branding on the product record.</p>
+  </div>
+
+  <div class="seclbl">Domains served · default landing scope</div>
+  <div class="tbl">
+    <div class="tr head" style="grid-template-columns:1.2fr 1fr 30px"><span>Domain</span><span>Lands on</span><span></span></div>
+    <div class="tr" style="grid-template-columns:1.2fr 1fr 30px"><span class="t">{STATUS_DOMAIN}</span><span class="muted">All — {COMPANY} root</span><span></span></div>
+    {withDomain.map((p) => (
+      <a class="tr link" style="grid-template-columns:1.2fr 1fr 30px" href={`/admin/components/${p.id}`}>
+        <span class="t">{p.domain}</span>
+        <span class="muted">{p.name}</span>
+        <span class="chev">›</span>
+      </a>
+    ))}
+    {withDomain.length === 0 && <div class="tr" style="grid-template-columns:1.2fr 1fr 30px"><span class="muted">No product domains configured. Set a domain on a product to scope a hostname to it.</span></div>}
+  </div>
+</AdminShell>
