@@ -77,12 +77,15 @@ export async function snapshotAllOpenIncidents(): Promise<Map<string, IncidentSn
   const rows = await db.select().from(incidents).where(ne(incidents.status, 'resolved'));
   const map = new Map<string, IncidentSnapshot>();
   for (const inc of rows) {
-    const cid = inc.affects[0];
-    if (!cid) continue;
-    // One snapshot per component; if multiple incidents share a component the
-    // first (any) is sufficient for transition detection.
-    if (!map.has(cid)) {
-      map.set(cid, { incidentId: inc.id, status: inc.status, severity: inc.severity });
+    // Snapshot every affected component, not just affects[0], so the sweep path
+    // can narrate transitions for all components in a multi-component incident.
+    for (const cid of inc.affects) {
+      if (!cid) continue;
+      // One snapshot per component; if multiple incidents share a component the
+      // first (any) is sufficient for transition detection.
+      if (!map.has(cid)) {
+        map.set(cid, { incidentId: inc.id, status: inc.status, severity: inc.severity });
+      }
     }
   }
   return map;

@@ -34,7 +34,12 @@ export const GET: APIRoute = async ({ locals }) => {
   const siteUrl = `https://${STATUS_DOMAIN}`;
 
   const entries = incidents.map((inc) => {
-    const updated = inc.resolved || inc.started;
+    // Use the latest timeline entry timestamp so <updated> bumps on every
+    // human update, not just when the incident was first opened or resolved.
+    const latestMs = inc.timeline.length > 0
+      ? Math.max(...inc.timeline.map((e) => new Date(e.timestamp).getTime()))
+      : 0;
+    const updated = latestMs > 0 ? new Date(latestMs).toISOString() : (inc.resolved || inc.started);
     return `  <entry>
     <title>${escapeXml(inc.title)}</title>
     <id>${siteUrl}/incident/${inc.id}</id>
