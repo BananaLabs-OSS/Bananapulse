@@ -8,7 +8,7 @@
  *   /api/v1/ingest/uptimerobot?key=<UPTIME_HOOK_SECRET>
  * (reusing the adapter, secret, lazy source, and mapping already in place).
  *
- * The VANTAGE is still UptimeRobot's global probe network — off OVH, off Grafana
+ * The VANTAGE is still UptimeRobot's global probe network — off your origin, off any on-box monitor
  * — so this preserves an independent 3rd failure domain. This function is only
  * transport; it changes nothing about WHERE the observation is made.
  *

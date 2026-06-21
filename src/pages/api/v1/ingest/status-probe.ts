@@ -2,8 +2,8 @@
  * Status Prober — THIN ADAPTER over the core quorum engine.
  *
  * The status page's OWN scheduled prober (netlify/functions/status-probe.mjs)
- * runs on Netlify — a failure domain independent of the OVH boxes (Evolution +
- * Grafana/Alloy) AND of UptimeRobot. It's the SECOND external vantage, so when a
+ * runs on Netlify — a failure domain independent of your origin boxes (and any
+ * on-box reporters) AND of external monitors. It's the SECOND external vantage, so when a
  * box dies and the on-box eyes go dark, two independent externals (this + UptimeRobot)
  * can agree → the quorum can CONFIRM the outage instead of stalling at one vote.
  *
