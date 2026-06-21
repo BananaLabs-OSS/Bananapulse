@@ -4,7 +4,7 @@
  * Sets `data-scope` on <html> (from the host-derived scope, fixed per domain)
  * which the CSS uses to swap accent + wordmark + logo. `data-theme` drives
  * light/dark (persisted; default light, no prefers-color-scheme, matching the
- * monkeylabs.gg brand site). <body data-skinned> activates styles/skins.css;
+ * company brand site). <body data-skinned> activates styles/skins.css;
  * admin uses AdminShell.astro and is untouched.
  */
 import { scopeId, brandForScope } from '../lib/skin';
@@ -17,7 +17,7 @@ import '../styles/brand.css';
 interface Props {
   title?: string;
   description?: string;
-  /** Host-derived scope (null = umbrella / Monkey Labs). */
+  /** Host-derived scope (null = umbrella (top-level)). */
   scope: string | null;
 }
 

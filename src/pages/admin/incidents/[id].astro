@@ -37,9 +37,12 @@ if (Astro.request.method === 'POST') {
       // Whitelist the status — a forged value must not reach incidents.status.
       const ALLOWED_STATUS = ['investigating', 'identified', 'monitoring', 'resolved'];
       if (status === 'resolved') {
-        // Force-resolve through the engine (manual source clears its read).
+        // Force-resolve through the engine for EVERY affected component so all
+        // components in a multi-component incident are cleared, not just affects[0].
         const manual = await getManualSource();
-        await recordManualOverride({ manualSourceId: manual.id, componentId: cur.affects[0], signal: 'ok', body: note, author: who });
+        for (const componentId of cur.affects) {
+          await recordManualOverride({ manualSourceId: manual.id, componentId, signal: 'ok', body: note, author: who });
+        }
       } else if (ALLOWED_STATUS.includes(status)) {
         await db.update(incidents).set({ status }).where(eq(incidents.id, id));
         await db.insert(incidentTimeline).values({ id: nanoid(), incidentId: id, at: new Date(), label: status.toUpperCase(), body: note, author: who });
@@ -63,8 +66,12 @@ if (Astro.request.method === 'POST') {
 
     if (action === 'resolve') {
       const note = form.get('note')?.toString() || `Resolved by ${who}.`;
+      // Clear ALL affected components, not just affects[0], so every component
+      // in a multi-component incident transitions back to OK.
       const manual = await getManualSource();
-      await recordManualOverride({ manualSourceId: manual.id, componentId: cur.affects[0], signal: 'ok', body: note, author: who });
+      for (const componentId of cur.affects) {
+        await recordManualOverride({ manualSourceId: manual.id, componentId, signal: 'ok', body: note, author: who });
+      }
     }
   }
   return Astro.redirect(`/admin/incidents/${id}`);

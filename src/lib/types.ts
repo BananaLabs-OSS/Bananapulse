@@ -27,6 +27,9 @@ export interface Incident {
   status: IncidentStatus;
   product: string;
   affects?: string[]; // service IDs affected by this incident
+  /** Display name of the affected component within the current scope — set by the
+   *  view builder for subtree incident lists (a quick "where" shortcut). */
+  affectedName?: string;
   /** true = engine-opened (detected automatically); false = human-declared. */
   auto?: boolean;
   started: string;   // ISO 8601
@@ -65,9 +68,9 @@ export function worstStatus(services: Service[]): ServiceStatus {
 /** Human-readable label for a service status. */
 export function statusLabel(s: ServiceStatus): string {
   switch (s) {
-    case 'operational':  return 'OPERATIONAL';
+    case 'operational':  return 'UP';
     case 'degraded':     return 'DEGRADED';
-    case 'outage':       return 'OUTAGE';
+    case 'outage':       return 'DOWN';
     case 'maintenance':  return 'MAINTENANCE';
   }
 }

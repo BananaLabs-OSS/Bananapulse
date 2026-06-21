@@ -9,12 +9,16 @@
  * new traffic. Notification fan-out for any resulting transition happens inside
  * the sweep endpoint itself.
  *
- * Cron: every minute. (Netlify's minimum granularity is 1 minute; the spec asks
- * for ~1 min.) The schedule is declared via the exported `config.schedule`
- * below — no extra dependency or netlify.toml entry is required for the
- * cadence, only that this file lives under `netlify/functions/`.
+ * Cron: every 5 minutes. (Was every minute — but at ~2 invocations/min including
+ * the downstream /api/v1/sweep call, that alone is ~86k function calls/month and
+ * pushed the Netlify account past its free-tier 125k cap → the whole site 503'd
+ * "usage_exceeded" 2026-06-18. TTLs are 10 min → 4.5 h, so a 5-min sweep loses no
+ * meaningful timeliness while cutting the dominant invocation source ~5×.)
+ * The schedule is declared via the exported `config.schedule` below — no extra
+ * dependency or netlify.toml entry is required, only that this file lives under
+ * `netlify/functions/`.
  *
- *   "* * * * *"  = at every minute
+ *   "*\/5 * * * *"  = every 5th minute
  *
  * Required env (set in Netlify): UPTIME_HOOK_SECRET (the sweep's shared secret).
  * Site origin is taken from Netlify's built-in URL/DEPLOY_URL env; if neither is
@@ -22,7 +26,7 @@
  */
 
 export const config = {
-  schedule: '* * * * *',
+  schedule: '*/5 * * * *',
 };
 
 export default async function handler() {

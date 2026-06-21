@@ -8,16 +8,17 @@
  * landing root (the entry domain), so drilling never crosses domains.
  */
 import { db } from '@/db';
-import { components } from '@/db/schema';
-import { isNull, asc, eq } from 'drizzle-orm';
+import { components, maintenance } from '@/db/schema';
+import { isNull, asc, eq, gte } from 'drizzle-orm';
 import type { ServiceStatus, Incident } from './types';
 import { statusToState } from './types';
 import { derivedComponentStatuses, evaluateComponent, openIncidentFor } from './quorum';
 import { getActiveIncidents } from './db-incidents';
 import { rootComponentId, UMBRELLA_ID } from '@/pulse.config';
-import type { ScopeView, ViewChild, CrumbItem } from './view';
+import type { ScopeView, ViewChild, CrumbItem, MaintWindow } from './view';
 
 type Comp = typeof components.$inferSelect;
+type MaintRow = typeof maintenance.$inferSelect;
 
 function mapStatus(s: string): ServiceStatus {
   switch (s) {
@@ -28,6 +29,60 @@ function mapStatus(s: string): ServiceStatus {
     default: return 'operational';
   }
 }
+// 90-day uptime history for a component (the stored day-status array) + the
+// reliability % over the days that actually have data ('future'/no-data excluded;
+// 'degraded' still counts as available — only 'out' is downtime).
+function uptimeArr(c: { uptime90d?: unknown } | undefined): string[] {
+  const a = c?.uptime90d;
+  return Array.isArray(a) ? (a as string[]) : [];
+}
+function uptimePctOf(a: string[]): number {
+  const withData = a.filter((d) => d && d !== 'future');
+  if (withData.length === 0) return 100;
+  // "% operational" — only fully-OK days count; degraded AND outage both ding it
+  // (a degraded service is not fully reliable, per the product rule).
+  const okDays = withData.filter((d) => d === 'ok').length;
+  return Math.round((okDays / withData.length) * 1000) / 10; // one decimal
+}
+
+// Roll the 90-day history UP the tree, mirroring effective(): a parent's day-D
+// status = worst(own day-D, critical children day-D uncapped, non-critical day-D
+// floored to degraded). Leaves use their stored array; a day with no data anywhere
+// in the subtree stays 'future' (grey). Memoised per page build.
+const DAY_RANK: Record<string, number> = { ok: 0, maint: 1, deg: 2, out: 3 };
+const RANK_DAY = ['ok', 'maint', 'deg', 'out'];
+function derivedUptime(t: Tree, id: string, memo: Map<string, string[]>): string[] {
+  const hit = memo.get(id);
+  if (hit) return hit;
+  const own = uptimeArr(t.byId.get(id) as { uptime90d?: unknown });
+  const kids = t.kids.get(id) ?? [];
+  let out: string[];
+  if (kids.length === 0) {
+    out = own.length ? own.slice(0, 90) : Array(90).fill('ok');
+  } else {
+    const kidData = kids.map((k) => ({ crit: (k as { kind?: string }).kind === 'critical', days: derivedUptime(t, k.id, memo) }));
+    out = Array.from({ length: 90 }, (_, d) => {
+      const ownR = own[d] != null && DAY_RANK[own[d]] != null ? DAY_RANK[own[d]] : -1;
+      let critR = -1, svcR = -1, anyData = ownR >= 0;
+      for (const { crit, days } of kidData) {
+        const r = days[d] != null && DAY_RANK[days[d]] != null ? DAY_RANK[days[d]] : -1;
+        if (r < 0) continue;
+        anyData = true;
+        if (crit) critR = Math.max(critR, r); else svcR = Math.max(svcR, r);
+      }
+      if (!anyData) return 'future';
+      const svcCapped = svcR === 3 ? 2 : svcR; // non-critical: outage floors to degraded
+      const fr = Math.max(ownR, critR, svcCapped);
+      return fr < 0 ? 'ok' : RANK_DAY[fr];
+    });
+  }
+  memo.set(id, out);
+  return out;
+}
+
+// Criticality is data-driven: a component with `kind: 'critical'` (set in the seed)
+// propagates its OUTAGE uncapped to its parent; every other node only degrades its
+// parent (the partial-outage floor). Retune by editing the seed, not this file.
 const WORST_ORDER: ServiceStatus[] = ['outage', 'degraded', 'maintenance', 'operational'];
 function worst(a: ServiceStatus, b: ServiceStatus): ServiceStatus {
   for (const s of WORST_ORDER) if (a === s || b === s) return s;
@@ -42,13 +97,15 @@ interface Tree {
   kids: Map<string, Comp[]>;
   derived: Record<string, { status: 'operational' | 'degraded' | 'outage' }>;
   incidents: Incident[];
+  maintenance: MaintRow[];
 }
 
 async function loadTree(): Promise<Tree> {
-  const [rows, derived, incs] = await Promise.all([
+  const [rows, derived, incs, maints] = await Promise.all([
     db.select().from(components).where(isNull(components.archivedAt)).orderBy(asc(components.sortOrder)),
     derivedComponentStatuses(),
     getActiveIncidents(),
+    db.select().from(maintenance).where(gte(maintenance.scheduledEnd, new Date())).orderBy(asc(maintenance.scheduledStart)),
   ]);
   const byId = new Map<string, Comp>();
   const kids = new Map<string, Comp[]>();
@@ -59,7 +116,47 @@ async function loadTree(): Promise<Tree> {
     arr.push(r);
     kids.set(r.parentId, arr);
   }
-  return { byId, kids, derived: derived as any, incidents: incs.filter((i) => i.status !== 'resolved') };
+  return { byId, kids, derived: derived as any, incidents: incs.filter((i) => i.status !== 'resolved'), maintenance: maints };
+}
+
+// Automatic recurring maintenance advisory: shows Monday (heads-up) + all Tuesday
+// (UTC), no DB row — computed from the clock. Displayed window is Tue evening.
+// Always 'scheduled' so it renders as the quiet compact strip. Org-wide.
+function recurringMaintenance(): MaintWindow[] {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun … 1=Mon, 2=Tue
+  if (day !== 1 && day !== 2) return [];
+  const tue = new Date(now);
+  tue.setUTCDate(now.getUTCDate() + (2 - day)); // Mon → +1, Tue → 0
+  tue.setUTCHours(20, 0, 0, 0);
+  const end = new Date(tue);
+  end.setUTCHours(23, 59, 0, 0);
+  return [{
+    id: 'recurring-tuesday',
+    title: 'Weekly maintenance',
+    summary: 'Routine maintenance may occur Tuesday evening — brief disruptions possible.',
+    start: tue.toISOString(),
+    end: end.toISOString(),
+    kind: 'scheduled',
+    active: false, // routine → stays compact, never the big banner
+  }];
+}
+
+// Active + upcoming maintenance windows touching a node's subtree (for the banner).
+function subtreeMaintenance(t: Tree, id: string): MaintWindow[] {
+  const ids = new Set(subtreeIds(t, id));
+  const now = Date.now();
+  return t.maintenance
+    .filter((m) => (m.affects ?? []).some((a) => ids.has(a)))
+    .map((m) => ({
+      id: m.id,
+      title: m.title,
+      summary: m.summary,
+      start: m.scheduledStart.toISOString(),
+      end: m.scheduledEnd.toISOString(),
+      kind: (m as { kind?: string }).kind ?? 'scheduled',
+      active: m.scheduledStart.getTime() <= now && m.scheduledEnd.getTime() >= now,
+    }));
 }
 
 function ownStatus(t: Tree, id: string): ServiceStatus {
@@ -71,9 +168,23 @@ function ownStatus(t: Tree, id: string): ServiceStatus {
 function effective(t: Tree, id: string, seen: Set<string> = new Set()): ServiceStatus {
   if (seen.has(id)) return 'operational'; // cycle guard: don't re-walk a node
   seen.add(id);
-  let s = ownStatus(t, id);
-  for (const k of t.kids.get(id) ?? []) s = worst(s, effective(t, k.id, seen));
-  return s;
+  const own = ownStatus(t, id);
+  const kids = t.kids.get(id) ?? [];
+  if (kids.length === 0) return own;
+  let critAgg: ServiceStatus = 'operational';
+  let svcAgg: ServiceStatus = 'operational';
+  for (const k of kids) {
+    const eff = effective(t, k.id, seen);
+    if ((k as { kind?: string }).kind === 'critical') critAgg = worst(critAgg, eff);
+    else svcAgg = worst(svcAgg, eff);
+  }
+  // Non-critical children can only DEGRADE a parent — their outage is capped. The
+  // node itself still shows its own real status on its own page; it just doesn't
+  // black out the parent (one game box / payments alone ≠ the surface down).
+  const svcCapped: ServiceStatus = svcAgg === 'outage' ? 'degraded' : svcAgg;
+  // Critical children (kind 'critical') propagate UNCAPPED — their loss takes the
+  // parent fully down. A node's OWN status is likewise uncapped.
+  return worst(own, worst(critAgg, svcCapped));
 }
 function subtreeIds(t: Tree, id: string, seen: Set<string> = new Set()): string[] {
   if (seen.has(id)) return []; // cycle guard
@@ -88,6 +199,19 @@ function incidentsAt(t: Tree, id: string): Incident[] {
 function issueCount(t: Tree, id: string): number {
   const ids = new Set(subtreeIds(t, id));
   return t.incidents.filter((i) => (i.affects ?? []).some((a) => ids.has(a))).length;
+}
+// All active incidents anywhere in a node's subtree, worst-first, each tagged with
+// the affected component's display name (the "where" shortcut for parent scopes).
+const INC_SEV_RANK: Record<string, number> = { major: 3, moderate: 2, minor: 1 };
+function subtreeIncidentList(t: Tree, id: string): Incident[] {
+  const ids = new Set(subtreeIds(t, id));
+  return t.incidents
+    .filter((i) => (i.affects ?? []).some((a) => ids.has(a)))
+    .map((i) => {
+      const affId = (i.affects ?? []).find((a) => ids.has(a));
+      return { ...i, affectedName: affId ? (t.byId.get(affId)?.name ?? affId) : undefined };
+    })
+    .sort((a, b) => (INC_SEV_RANK[b.severity] ?? 0) - (INC_SEV_RANK[a.severity] ?? 0));
 }
 /** root..node chain. */
 function chainTo(t: Tree, id: string): Comp[] {
@@ -132,6 +256,8 @@ export async function buildComponentView(scope: string | null, segs: string[]): 
   const isRoot = id === rootId;
   const status = effective(t, id);
   const kids = t.kids.get(id) ?? [];
+  const upMemo = new Map<string, string[]>(); // derived-uptime cache for this build
+  const scopeMaint = [...recurringMaintenance(), ...subtreeMaintenance(t, id)];
 
   const children: ViewChild[] = kids.map((c) => ({
     id: c.id,
@@ -139,8 +265,10 @@ export async function buildComponentView(scope: string | null, segs: string[]): 
     kind: (c.tag ?? c.kind) as ViewChild['kind'],
     status: effective(t, c.id),
     issueCount: issueCount(t, c.id),
-    maintCount: 0,
+    maintCount: subtreeMaintenance(t, c.id).length,
     href: hrefFor(t, c.id, rootId),
+    uptime: derivedUptime(t, c.id, upMemo),
+    uptimePct: uptimePctOf(derivedUptime(t, c.id, upMemo)),
   }));
 
   const chain = chainTo(t, id);
@@ -158,13 +286,18 @@ export async function buildComponentView(scope: string | null, segs: string[]): 
     state: statusToState(status),
     isRoot,
     nodeName: node.name,
+    nodeTag: node.tag ?? undefined,
     level,
     crumbs,
     children,
     attachedIncidents: incidentsAt(t, id),
+    subtreeIncidents: subtreeIncidentList(t, id),
     issueCount: issueCount(t, id),
-    maintCount: 0,
+    maintCount: scopeMaint.length,
+    maintenance: scopeMaint,
     affectedChildNames: children.filter((c) => c.status !== 'operational').map((c) => c.name),
+    uptime: derivedUptime(t, id, upMemo),
+    uptimePct: uptimePctOf(derivedUptime(t, id, upMemo)),
   };
 }
 

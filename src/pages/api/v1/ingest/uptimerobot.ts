@@ -40,10 +40,21 @@ import { appendObservation, type Signal } from '@/lib/quorum';
 import { snapshotComponent, notifyForComponent } from '@/lib/notify';
 
 /**
- * Dead-man TTL for UptimeRobot observations: ~2x a 5-minute probe so a probe that
- * simply dies goes stale instead of pinning the last reading forever.
+ * TTL for UptimeRobot observations. UptimeRobot is a TRANSITION-ONLY webhook: it
+ * fires ONCE on up->down and stays silent until down->up. So a "down" must stay
+ * LIVE for the whole sustained outage (the next 'up' webhook clears it) — it is
+ * NOT a periodic probe and must not be aged out on a periodic dead-man.
+ *
+ * The old 600s (~2x a 5-min probe) was the bug: in a sustained outage the lone
+ * "down" expired after 10 min with nothing to refresh it, dropping the quorum
+ * from >=2 live monitors to 1 -> the engine fell from `major` to `watch`
+ * (degraded). A critical component that was really DOWN decayed to "degraded".
+ *
+ * 24h is a sticky window that covers any realistic outage while still acting as a
+ * far-out dead-man backstop if UptimeRobot itself dies mid-outage and never sends
+ * the 'up'. Other live vantages (Status Prober, Grafana) cover that gap meanwhile.
  */
-const UPTIME_OBS_TTL_SECONDS = Number(process.env.UPTIME_HOOK_TTL_SECONDS) || 600;
+const UPTIME_OBS_TTL_SECONDS = Number(process.env.UPTIME_HOOK_TTL_SECONDS) || 86400;
 
 // Legacy fixed-shape status -> core signal (back-compat).
 const LEGACY_SIGNAL_MAP: Record<string, Signal | 'maint'> = {

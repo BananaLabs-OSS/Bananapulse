@@ -86,7 +86,7 @@ const compName = (id: string) => components.find((c) => c.value === id)?.label ?
   <form method="POST" class="form" style="margin-bottom:22px">
     <input type="hidden" name="_action" value="create" />
     <div class="fld row">
-      <div><label>Name *</label><input type="text" name="name" placeholder="evolution-self-report" required /></div>
+      <div><label>Name *</label><input type="text" name="name" placeholder="onbox-self-report" required /></div>
       <div><label>Kind</label><select name="kind">{SOURCE_KIND_OPTIONS.map((o) => <option value={o.value}>{o.label}</option>)}</select></div>
     </div>
     <div class="fld row">

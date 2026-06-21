@@ -20,7 +20,11 @@ const properties = await propertyOptions();
 ---
 <AdminShell title="Maintenance" active="maintenance" adminEmail={adminEmail} counts={counts} property={property} properties={properties}
   primaryAction={{ href: '/admin/maintenance/new', label: '+ Schedule maintenance' }}>
-  <p class="note" style="margin-bottom:16px">{resource.blurb}</p>
+  <p class="note" style="margin-bottom:12px">{resource.blurb}</p>
+  <p class="note" style="margin-bottom:12px">Weekly Tuesday maintenance shows automatically — no need to schedule it. Use the button below only for unplanned emergencies.</p>
+  <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+    <a class="btn danger" href="/admin/maintenance/new?preset=emergency">⚡ Emergency maintenance</a>
+  </div>
   <ResourceList resource={resource} rows={rows}
     hrefFor={(r) => `/admin/maintenance/${r.id}`}
     cellOverrides={Object.fromEntries(rows.flatMap((r) => [

@@ -25,6 +25,14 @@ export const POST: APIRoute = async (ctx) => {
   if (!b?.title || !b?.summary || !b?.scheduledStart || !b?.scheduledEnd || !Array.isArray(b.affects) || !b.affects.length) {
     return err('bad_request', 'title, summary, scheduledStart, scheduledEnd and at least one affected component are required.', 400);
   }
+  const startMs = new Date(b.scheduledStart).getTime();
+  const endMs = new Date(b.scheduledEnd).getTime();
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
+    return err('bad_request', 'scheduledStart and scheduledEnd must be valid date-times.', 400);
+  }
+  if (endMs <= startMs) {
+    return err('bad_request', 'scheduledEnd must be after scheduledStart.', 400);
+  }
   // Every affected id must resolve to a real LEAF component, or the window
   // renders on no page (the invisible-maintenance bug).
   for (const a of b.affects) {

@@ -13,7 +13,7 @@ const { recordManualOverride } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/lib/admin-api', () => ({
-  requireAdmin: vi.fn(async () => 'admin@monkeylabs.gg'),
+  requireAdmin: vi.fn(async () => 'admin@example.com'),
   ok: (data: unknown, status = 200) =>
     new Response(JSON.stringify({ data }), { status }),
   err: (code: string, message: string, status: number) =>
@@ -69,7 +69,7 @@ describe('POST /api/v1/admin/incidents — leaf-only declare guard (audit regres
   it('REGRESSION: rejects declaring on a NON-LEAF (org/product) with 400 (isLeafComponent=false)', async () => {
     mockExists.mockResolvedValue(true);
     mockLeaf.mockResolvedValue(false);
-    const res = await POST(ctx({ componentId: 'monkeylabs', severity: 'major' }));
+    const res = await POST(ctx({ componentId: 'org-root', severity: 'major' }));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error.message).toContain('not a leaf');

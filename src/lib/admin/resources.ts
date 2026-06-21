@@ -6,7 +6,7 @@
  * generic list → detail → form views read these declarations and render
  * themselves; adding a new manageable resource later is a new declaration plus
  * a data adapter, never a new screen. This is the reusable CMS seed for other
- * properties (Evolution next) — nothing here is status-specific beyond the
+ * properties (more to come) — nothing here is status-specific beyond the
  * declarations themselves.
  *
  * Discipline note (status §5): the admin is narration + scheduling +
@@ -100,6 +100,11 @@ export const COMPONENT_KIND_OPTIONS: FieldOption[] = [
   { value: 'host', label: 'Host' },
 ];
 
+export const MAINT_KIND_OPTIONS: FieldOption[] = [
+  { value: 'scheduled', label: 'Scheduled — planned & advertised' },
+  { value: 'emergency', label: 'Emergency — immediate' },
+];
+
 export const SOURCE_KIND_OPTIONS: FieldOption[] = [
   { value: 'push', label: 'Push — POSTs observations' },
   { value: 'probe', label: 'Probe — external check' },
@@ -152,6 +157,7 @@ export const RESOURCES: ResourceDecl[] = [
     fields: [
       { name: 'title', label: 'Title', type: 'text', required: true, placeholder: 'Postmark DNS migration' },
       { name: 'summary', label: 'Customer message', type: 'textarea', required: true, placeholder: 'Email may be delayed up to 15 min during the window.' },
+      { name: 'kind', label: 'Type', type: 'select', required: true, options: MAINT_KIND_OPTIONS, hint: 'Scheduled = planned & advertised (the Tuesday cadence). Emergency = immediate/urgent.' },
       { name: 'scheduledStart', label: 'Starts', type: 'datetime', required: true },
       { name: 'scheduledEnd', label: 'Ends', type: 'datetime', required: true },
       { name: 'affects', label: 'Affected component', type: 'multiselect', required: true, optionsKey: 'components' },
@@ -167,7 +173,7 @@ export const RESOURCES: ResourceDecl[] = [
       'Register a source, issue/rotate its bearer token (shown once), set weight + default TTL, and map raw labels to components.',
     listColumns: ['name', 'kind', 'trusted', 'weight', 'defaultTtl'],
     fields: [
-      { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'evolution-self-report' },
+      { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'onbox-self-report' },
       { name: 'kind', label: 'Kind', type: 'select', required: true, options: SOURCE_KIND_OPTIONS },
       { name: 'trusted', label: 'Trusted (first-party)', type: 'boolean', placeholder: 'May declare on its own', hint: 'A trusted first-party vantage declares an incident alone (capped to degraded); a second source escalates it. Leave off for external validators, which only corroborate (alone they just WATCH).' },
       { name: 'weight', label: 'Trust weight', type: 'number', hint: 'Higher weight counts for more in quorum.', placeholder: '1' },
@@ -188,12 +194,12 @@ export const RESOURCES: ResourceDecl[] = [
     ],
     fields: [
       { name: 'id', label: 'ID', type: 'text', required: true, placeholder: 'provisioner', hint: 'Stable url-safe key — used in the public path, observations, and incident affects. Cannot change later.', createOnly: true },
-      { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Provisioner · Bananagine' },
+      { name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Provisioner' },
       { name: 'kind', label: 'Kind', type: 'select', required: true, options: COMPONENT_KIND_OPTIONS, hint: 'Structural role in the tree.' },
       { name: 'parentId', label: 'Parent', type: 'select', optionsKey: 'componentParents', hint: 'Which node this rolls up into. Blank = top level (organization root).' },
       { name: 'tag', label: 'Tag', type: 'text', placeholder: 'repo · runtime', hint: 'Display label shown beside the name.' },
       { name: 'brand', label: 'Brand scope', type: 'text', placeholder: 'sessions', hint: 'Product nodes only — scope id that selects the brand (accent + wordmark + logo).' },
-      { name: 'domain', label: 'Domain', type: 'text', placeholder: 'status.sessions.gg', hint: 'Product nodes only — Host header that lands on this scope.' },
+      { name: 'domain', label: 'Domain', type: 'text', placeholder: 'status.example.com', hint: 'Product nodes only — Host header that lands on this scope.' },
       { name: 'sortOrder', label: 'Sort', type: 'number', hint: 'Lower numbers appear first.', placeholder: '0' },
     ],
     actions: { create: true, edit: true, archive: true },

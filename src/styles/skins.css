@@ -1,13 +1,13 @@
 /* ============================================================================
  * Public status skin — ONE design, scope-driven branding.
- * Ported from the status.html mock onto the white Monkey Labs base.
+ * Ported from the status.html mock onto the white base.
  *
- *   <html data-scope="monkeylabs|sessions|bananalabs">  → accent + wordmark + logo
+ *   <html data-scope="<scope-id>">  → accent + wordmark + logo
  *   <html data-theme="dark">                            → light/dark (persisted)
  *
  * Brand differs ONLY by --ac + wordmark + logo (cheap token swap, not 3 skins).
  * Status is carried by the locked palette + a quiet-when-healthy capsule "leg".
- * White base + isometric hatch keeps it a sibling of monkeylabs.gg. All tokens
+ * White base + isometric hatch keeps it a sibling of the brand site. All tokens
  * are scoped to body[data-skinned] so admin/Default pages are untouched.
  * ========================================================================== */
 
@@ -21,11 +21,11 @@ body[data-skinned] {
   --line2: #d2cfc0;
   --mono: 'IBM Plex Mono', monospace;
   --ac: #475569; /* brandless Pulse default — instance brand.css overrides per data-scope */
-  --ok: #1ea63a;
-  --maint: #2f6bf0;
-  --degr: #cf9f28;
-  --part: #ea7317;
-  --major: #cf2f37;
+  --ok: #198754;    /* bootstrap success */
+  --maint: #0d6efd; /* bootstrap primary — blue = info / maintenance */
+  --degr: #cc9a06;  /* bootstrap warning, darkened so it reads on white */
+  --part: #fd7e14;  /* bootstrap orange — partial outage */
+  --major: #dc3545; /* bootstrap danger */
 }
 /* per-scope accents live in the instance layer → styles/brand.css */
 
@@ -38,11 +38,11 @@ html[data-theme='dark'] body[data-skinned] {
   --line: #202819;
   --line2: #2c3522;
   --ac: #64748b; /* brandless Pulse dark default — brand.css overrides per scope */
-  --ok: #3fd14f;
-  --maint: #5b8bff;
-  --degr: #e6c04a;
-  --part: #f0883e;
-  --major: #e5484d;
+  --ok: #2fb344;    /* bootstrap success, brightened for dark */
+  --maint: #4dabf7; /* bootstrap blue, brightened for dark */
+  --degr: #ffc107;  /* bootstrap warning — full yellow reads fine on dark */
+  --part: #ff922b;  /* bootstrap orange, brightened */
+  --major: #ff6b6b; /* bootstrap danger, brightened */
 }
 /* dark per-scope accents live in the instance layer → styles/brand.css */
 
@@ -118,6 +118,31 @@ body[data-skinned] .row .kd { font-family: var(--mono); font-size: 10px; color: 
 body[data-skinned] .row .badge { font-family: var(--mono); font-size: 11px; font-weight: 600; padding: 3px 9px; border-radius: 20px; }
 body[data-skinned] .row .st { font-family: var(--mono); font-size: 12px; margin-left: auto; font-weight: 500; }
 body[data-skinned] .row .chev { color: var(--faint); font-family: var(--mono); }
+
+/* ---- maintenance banner (blue = scheduled, amber = emergency) ---- */
+body[data-skinned] .maintbar { display: flex; align-items: center; gap: 13px; padding: 12px 16px; border-radius: 8px; margin-bottom: 14px; border: 1px solid color-mix(in srgb, var(--maint) 35%, transparent); background: color-mix(in srgb, var(--maint) 9%, transparent); }
+body[data-skinned] .maintbar.emergency { border-color: color-mix(in srgb, var(--part) 50%, transparent); background: color-mix(in srgb, var(--part) 12%, transparent); }
+body[data-skinned] .maintbar .mtag { font-family: var(--mono); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--maint); white-space: nowrap; }
+body[data-skinned] .maintbar.emergency .mtag { color: var(--part); }
+body[data-skinned] .maintbar .mbody { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+body[data-skinned] .maintbar .mbody strong { font-size: 14px; font-weight: 600; }
+body[data-skinned] .maintbar .mwhen { font-family: var(--mono); font-size: 11px; color: var(--muted); }
+/* compact = an advertised, not-yet-active scheduled window: a quiet one-line strip */
+body[data-skinned] .maintbar.compact { padding: 7px 13px; gap: 9px; background: transparent; border-style: dashed; border-color: color-mix(in srgb, var(--maint) 40%, transparent); margin-bottom: 10px; }
+body[data-skinned] .maintbar.compact .mtag { font-size: 10px; color: var(--maint); }
+body[data-skinned] .maintbar.compact .mbody { flex-direction: row; align-items: baseline; gap: 8px; min-width: 0; }
+body[data-skinned] .maintbar.compact .mbody strong { font-size: 12.5px; font-weight: 500; }
+body[data-skinned] .maintbar.compact .mwhen { font-size: 10.5px; }
+
+/* ---- uptime bars (90-day reliability strip; wraps onto its own line) ---- */
+body[data-skinned] .row { flex-wrap: wrap; }
+body[data-skinned] .row.static { cursor: default; }
+body[data-skinned] .row.static:hover { transform: none; border-color: var(--line); }
+body[data-skinned] .row .upwrap { flex-basis: 100%; display: flex; align-items: center; gap: 10px; margin-top: 12px; }
+body[data-skinned] .row .bars { flex: 1 1 auto; display: flex; gap: 2px; height: 22px; align-items: stretch; }
+body[data-skinned] .row .bars span { flex: 1 1 0; min-width: 0; border-radius: 1.5px; opacity: 0.88; }
+body[data-skinned] .row .bars span:hover { opacity: 1; }
+body[data-skinned] .row .up { font-family: var(--mono); font-size: 11px; color: var(--muted); white-space: nowrap; }
 
 /* ---- incident detail ---- */
 body[data-skinned] .back { display: inline-flex; gap: 7px; font-family: var(--mono); font-size: 12.5px; color: var(--muted); margin: 10px 0 4px; cursor: pointer; }

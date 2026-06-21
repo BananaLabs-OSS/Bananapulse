@@ -1,14 +1,13 @@
 import type { APIRoute } from 'astro';
 import { db } from '@/db';
-import { incidents } from '@/db/schema';
+import { incidents, incidentTimeline } from '@/db/schema';
 import { validateApiToken } from '@/lib/api-tokens';
 import { componentExists, isLeafComponent } from '@/lib/components';
 import { eq, desc, and, arrayContains } from 'drizzle-orm';
-import { getManualSource } from '@/lib/sources';
-import { recordManualOverride, openIncidentFor, type Level } from '@/lib/quorum';
-import { snapshotComponent, notifyForComponent } from '@/lib/notify';
+import { nanoid } from 'nanoid';
 
 const VALID_SEVERITY = ['minor', 'moderate', 'major'];
+const VALID_STATUS = ['investigating', 'identified', 'monitoring', 'resolved'];
 
 async function authenticate(request: Request, requiredScope: 'read' | 'write' | 'full') {
   const auth = request.headers.get('Authorization');
@@ -46,12 +45,15 @@ export const POST: APIRoute = async ({ request }) => {
   if (!token) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid or insufficient API token.' } }), { status: 401 });
 
   const body = await request.json();
-  const { title, summary, severity, affects } = body;
+  const { title, summary, severity, affects, status: incStatus } = body;
   if (!title || !summary || !severity || !affects?.length) {
     return new Response(JSON.stringify({ error: { code: 'bad_request', message: 'title, summary, severity, and affects are required.' } }), { status: 400 });
   }
   if (!VALID_SEVERITY.includes(severity)) {
     return new Response(JSON.stringify({ error: { code: 'bad_request', message: `severity must be one of ${VALID_SEVERITY.join(', ')}.` } }), { status: 400 });
+  }
+  if (incStatus != null && !VALID_STATUS.includes(incStatus)) {
+    return new Response(JSON.stringify({ error: { code: 'bad_request', message: `status must be one of ${VALID_STATUS.join(', ')}.` } }), { status: 400 });
   }
   // Every affected id must resolve to a real LEAF component (service/host), or
   // the incident is invisible / declared up the tree.
@@ -64,26 +66,24 @@ export const POST: APIRoute = async ({ request }) => {
     }
   }
 
-  // Route through the same quorum engine the admin path uses so a token-auth
-  // create cannot bypass quorum. Direct db.insert bypassed all engine logic.
-  const level: Level = severity === 'major' ? 'major' : 'degraded';
-  const signal = level === 'major' ? 'down' : 'degraded';
-  const manual = await getManualSource();
-  const author = `api-token:${token.id}`;
-  for (const componentId of affects) {
-    const before = await snapshotComponent(componentId);
-    await recordManualOverride({
-      manualSourceId: manual.id,
-      componentId,
-      signal,
-      level,
-      body: body.initial_note || summary,
-      title: title || undefined,
-      author,
+  const id = nanoid();
+  await db.insert(incidents).values({
+    id, title, summary, severity, affects,
+    status: incStatus ?? 'investigating',
+    startedAt: new Date(),
+  });
+
+  // Create initial timeline entry if provided
+  if (body.initial_note) {
+    await db.insert(incidentTimeline).values({
+      id: nanoid(),
+      incidentId: id,
+      at: new Date(),
+      label: (incStatus ?? 'INVESTIGATING').toUpperCase(),
+      body: body.initial_note,
     });
-    await notifyForComponent(componentId, before);
   }
 
-  const open = await openIncidentFor(affects[0]);
-  return new Response(JSON.stringify({ data: open }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+  const created = await db.select().from(incidents).where(eq(incidents.id, id));
+  return new Response(JSON.stringify({ data: created[0] }), { status: 201, headers: { 'Content-Type': 'application/json' } });
 };

@@ -67,6 +67,8 @@ export const maintenance = pgTable('maintenance', {
   id: text('id').primaryKey(),
   title: text('title').notNull(),
   summary: text('summary').notNull(),
+  // 'scheduled' = planned/advertised (the Tuesday cadence); 'emergency' = immediate.
+  kind: text('kind').notNull().default('scheduled'),
   scheduledStart: timestamp('scheduled_start', { withTimezone: true }).notNull(),
   scheduledEnd: timestamp('scheduled_end', { withTimezone: true }).notNull(),
   affects: text('affects').array().notNull(),

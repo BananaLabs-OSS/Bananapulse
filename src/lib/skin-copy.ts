@@ -16,10 +16,13 @@ export const STATUS_COLOR: Record<ServiceStatus, string> = {
   maintenance: 'var(--maint)',
 };
 
+// STATUS = a component's own health (the node's word). UP / DEGRADED / DOWN.
+// Distinct from incident SEVERITY (Minor/Moderate/Major) below — the two
+// vocabularies are kept separate on purpose; never conflate them.
 export const STATUS_LABEL: Record<ServiceStatus, string> = {
-  operational: 'Operational',
+  operational: 'Up',
   degraded: 'Degraded',
-  outage: 'Major outage',
+  outage: 'Down',
   maintenance: 'Maintenance',
 };
 
@@ -32,11 +35,14 @@ export function severityColor(sev: IncidentSeverity): string {
   }
 }
 
+// SEVERITY = how much an incident matters (its blast radius). Minor/Moderate/Major.
+// Separate from STATUS above: a node can read DOWN with a MODERATE incident
+// (non-critical) or DOWN with a MAJOR one (critical).
 export function severityLabel(sev: IncidentSeverity): string {
   switch (sev) {
-    case 'major': return 'Major outage';
-    case 'moderate': return 'Partial outage';
-    case 'minor': return 'Degraded';
+    case 'major': return 'Major';
+    case 'moderate': return 'Moderate';
+    case 'minor': return 'Minor';
   }
 }
 

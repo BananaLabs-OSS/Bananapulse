@@ -248,8 +248,33 @@ export async function evaluateComponent(componentId: string, now = new Date()): 
 /* ── auto-incident wiring ────────────────────────────────────── */
 
 // Engine level (degraded|major) -> incident severity vocabulary (types.ts).
+// Used for MANUAL incidents only: a human's stated level is authoritative and is
+// NOT down-ranked by criticality.
 function levelToSeverity(level: Level): 'moderate' | 'major' {
   return level === 'major' ? 'major' : 'moderate';
+}
+
+// Auto-derived 3-tier severity (Minor / Moderate / Major), CRITICALITY-AWARE.
+// The engine level says how bad the SIGNAL is (down vs degraded); `critical`
+// (the component's seed `kind`) says how much it MATTERS. Severity is blast
+// radius, not just signal:
+//   MAJOR    = a CRITICAL component confirmed DOWN.
+//   MODERATE = critical DEGRADED, or a non-critical component confirmed DOWN.
+//   MINOR    = non-critical DEGRADED, or ANY single UNCONFIRMED vantage (watch).
+// Component STATUS (operational/degraded/outage, via evaluationToStatus) is
+// UNCHANGED — this only sets the incident's severity.
+export type AutoSeverity = 'minor' | 'moderate' | 'major';
+export function severityFor(ev: ComponentEvaluation, critical: boolean): AutoSeverity {
+  if (ev.state === 'watch') return 'minor';                       // unconfirmed single vantage
+  if (ev.level === 'major') return critical ? 'major' : 'moderate'; // confirmed down
+  return critical ? 'moderate' : 'minor';                        // confirmed degraded
+}
+
+// Incident headline keyed on the (already criticality-aware) severity.
+function severityHeadline(severity: AutoSeverity): string {
+  return severity === 'major' ? 'major outage'
+    : severity === 'moderate' ? 'degraded performance'
+    : 'minor issue';
 }
 
 /**
@@ -272,12 +297,21 @@ async function componentName(componentId: string): Promise<string> {
   return rows[0]?.name ?? componentId;
 }
 
+/** Is this component flagged `critical` in the seed? Drives auto-severity blast radius. */
+async function componentCritical(componentId: string): Promise<boolean> {
+  const rows = await db.select({ kind: components.kind }).from(components).where(eq(components.id, componentId));
+  return rows[0]?.kind === 'critical';
+}
+
 /** Templated first update so the page reads acceptably with zero human input. */
-function templateFirstUpdate(name: string, level: Level): string {
-  if (level === 'major') {
+function templateFirstUpdate(name: string, severity: AutoSeverity): string {
+  if (severity === 'major') {
     return `We're investigating a major issue affecting ${name}. Some requests may be failing. We'll post an update as soon as we know more.`;
   }
-  return `We're investigating degraded performance affecting ${name}. You may notice slower responses. We'll keep this page updated.`;
+  if (severity === 'moderate') {
+    return `We're investigating degraded performance affecting ${name}. You may notice slower responses. We'll keep this page updated.`;
+  }
+  return `We're seeing a possible issue affecting ${name} from limited monitoring. Impact appears minor — we're keeping an eye on it.`;
 }
 
 function templateResolution(name: string): string {
@@ -302,21 +336,29 @@ async function openIncidentFor(componentId: string) {
  *   - declared & open MANUAL incident       -> leave it (human owns the words/status)
  *   - operational & open AUTO incident      -> auto-resolve + templated resolution update
  *   - operational & open MANUAL incident    -> leave it (only a human resolves human incidents)
- *   - watch / 1-source                      -> never opens or touches an incident
+ *   - watch (1 unconfirmed vantage)         -> open/track a MINOR auto-incident
+ *                                              (criticality-aware severity; kept
+ *                                              quiet by notifyForComponent)
  */
 export async function reconcileIncident(ev: ComponentEvaluation, now = new Date()): Promise<void> {
   const open = await openIncidentFor(ev.componentId);
   const name = await componentName(ev.componentId);
+  const critical = await componentCritical(ev.componentId);
 
-  if (ev.state === 'declared' && ev.level) {
-    const severity = levelToSeverity(ev.level);          // signal sets severity
+  // ACTIVE: the engine sees a live issue — CONFIRMED (declared) OR a single
+  // UNCONFIRMED vantage (watch). Both now own an auto-incident so a real signal
+  // is never invisible; severity is criticality-aware (watch always -> minor,
+  // which notifyForComponent keeps quiet — "minor never pages").
+  if (ev.state === 'watch' || ev.state === 'declared') {
+    const severity = severityFor(ev, critical);          // signal x criticality
     const confStatus = confidenceToStatus(ev.confidence); // votes set status
+    const title = `${name} — ${severityHeadline(severity)}`;
     if (!open) {
       const incId = nanoid();
       await db.insert(incidents).values({
         id: incId,
-        title: `${name} — ${ev.level === 'major' ? 'major outage' : 'degraded performance'}`,
-        summary: templateFirstUpdate(name, ev.level),
+        title,
+        summary: templateFirstUpdate(name, severity),
         status: confStatus,
         severity,
         affects: [ev.componentId],
@@ -328,18 +370,18 @@ export async function reconcileIncident(ev: ComponentEvaluation, now = new Date(
         incidentId: incId,
         at: now,
         label: confStatus.toUpperCase(),
-        body: templateFirstUpdate(name, ev.level),
+        body: templateFirstUpdate(name, severity),
         author: 'engine',
       });
     } else if (open.auto) {
-      // Engine owns its own incidents: track severity to the current worst signal,
-      // and RAISE status as confidence grows — but NEVER downgrade (a dropped
-      // vantage can't un-identify a live incident; a human-set 'monitoring'
-      // outranks and is preserved).
-      const patch: { severity?: 'moderate' | 'major'; title?: string; status?: string } = {};
+      // Engine owns its own incidents: track severity to the current signal x
+      // criticality, and RAISE status as confidence grows — but NEVER downgrade
+      // status (a dropped vantage can't un-identify a live incident; a human-set
+      // 'monitoring' outranks and is preserved).
+      const patch: { severity?: AutoSeverity; title?: string; status?: string } = {};
       if (open.severity !== severity) {
         patch.severity = severity;
-        patch.title = `${name} — ${ev.level === 'major' ? 'major outage' : 'degraded performance'}`;
+        patch.title = title;
       }
       if (STATUS_RANK[confStatus] > (STATUS_RANK[open.status] ?? 0)) {
         patch.status = confStatus;
@@ -379,7 +421,7 @@ export async function reconcileIncident(ev: ComponentEvaluation, now = new Date(
       });
     }
   }
-  // watch (1 non-ok): never opens, never resolves. Just surfaced.
+  // (watch and declared are both handled in the ACTIVE branch above.)
 }
 
 /** Run the full evaluate -> reconcile cycle for a single component. */

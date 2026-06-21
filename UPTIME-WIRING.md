@@ -5,7 +5,7 @@ quorum engine — so when UptimeRobot sees something down, the status page can
 react instead of just emailing you.
 
 UptimeRobot is an **untrusted** source: on its own it only puts a component on
-WATCH (not public). It needs a second vantage (e.g. Evolution) to agree before an
+WATCH (not public). It needs a second vantage (e.g. an on-box reporter) to agree before an
 incident goes public. That's the abuse guard — don't expect a single UptimeRobot
 alert to post a public outage by itself.
 

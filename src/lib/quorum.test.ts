@@ -15,7 +15,7 @@ vi.mock('@/db', () => ({
   },
 }));
 
-import { evaluateComponent, evaluationToStatus, MANUAL_OK_GRACE_SECONDS, sameObservation, resolveExpiry, refreshExpiry, confidenceToStatus } from './quorum';
+import { evaluateComponent, evaluationToStatus, severityFor, MANUAL_OK_GRACE_SECONDS, sameObservation, resolveExpiry, refreshExpiry, confidenceToStatus } from './quorum';
 
 const NOW = new Date('2026-06-03T12:00:00Z');
 
@@ -168,10 +168,10 @@ describe('quorum evaluateComponent — decision precedence (audit R5)', () => {
 
 describe('quorum trusted-source ladder — single first-party declares, corroboration escalates', () => {
   it('DECOUPLE: a lone TRUSTED "down" declares at TRUE severity (major), confidence 1 — not capped to degraded', async () => {
-    // The Resend case: only Evolution (trusted) probes it. It declares — visible —
+    // The Resend case: only one trusted source probes it. It declares — visible —
     // at its REAL severity (major); the low confidence of one vantage is carried
     // in the incident STATUS (investigating), not by softening severity to degraded.
-    const ev = await evalWith([row({ sourceId: 'evolution', trusted: true, signal: 'down' })]);
+    const ev = await evalWith([row({ sourceId: 'onbox', trusted: true, signal: 'down' })]);
     expect(ev.state).toBe('declared');
     expect(ev.level).toBe('major');
     expect(ev.confidence).toBe(1);
@@ -180,14 +180,14 @@ describe('quorum trusted-source ladder — single first-party declares, corrobor
   });
 
   it('a lone TRUSTED "degraded" declares at degraded', async () => {
-    const ev = await evalWith([row({ sourceId: 'evolution', trusted: true, signal: 'degraded' })]);
+    const ev = await evalWith([row({ sourceId: 'onbox', trusted: true, signal: 'degraded' })]);
     expect(ev.state).toBe('declared');
     expect(ev.level).toBe('degraded');
   });
 
   it('ESCALATION: trusted "down" + an external validator agreeing => MAJOR, confidence 2 (status -> identified)', async () => {
     const ev = await evalWith([
-      row({ sourceId: 'evolution', trusted: true, signal: 'down' }),
+      row({ sourceId: 'onbox', trusted: true, signal: 'down' }),
       row({ sourceId: 'uptimerobot', trusted: false, signal: 'down' }),
     ]);
     expect(ev.state).toBe('declared');
@@ -204,7 +204,7 @@ describe('quorum trusted-source ladder — single first-party declares, corrobor
 
   it('a live manual "all clear" still outranks a single trusted vantage (human authority over one source)', async () => {
     const ev = await evalWith([
-      row({ sourceId: 'evolution', trusted: true, signal: 'down' }),
+      row({ sourceId: 'onbox', trusted: true, signal: 'down' }),
       row({ sourceId: 'manual', kind: 'manual', signal: 'ok', expiresInSec: MANUAL_OK_GRACE_SECONDS }),
     ]);
     expect(ev.state).toBe('ok');
@@ -212,7 +212,7 @@ describe('quorum trusted-source ladder — single first-party declares, corrobor
   });
 
   it('a stale trusted "down" drops out (dead-man) => no phantom declare', async () => {
-    const ev = await evalWith([row({ sourceId: 'evolution', trusted: true, signal: 'down', expiresInSec: -10 })]);
+    const ev = await evalWith([row({ sourceId: 'onbox', trusted: true, signal: 'down', expiresInSec: -10 })]);
     expect(ev.state).toBe('ok');
     expect(ev.trustedNonOkCount).toBe(0);
     expect(ev.reducedCoverage).toBe(true);
@@ -225,6 +225,22 @@ describe('evaluationToStatus mapping', () => {
     expect(evaluationToStatus({ state: 'declared', level: 'degraded' } as any)).toBe('degraded');
     expect(evaluationToStatus({ state: 'watch', level: null } as any)).toBe('operational');
     expect(evaluationToStatus({ state: 'ok', level: null } as any)).toBe('operational');
+  });
+});
+
+describe('severityFor — criticality-aware 3-tier severity (status is unchanged)', () => {
+  const ev = (state: string, level: string | null) => ({ state, level } as any);
+  it('confirmed DOWN: critical => major, non-critical => moderate', () => {
+    expect(severityFor(ev('declared', 'major'), true)).toBe('major');
+    expect(severityFor(ev('declared', 'major'), false)).toBe('moderate');
+  });
+  it('confirmed DEGRADED: critical => moderate, non-critical => minor', () => {
+    expect(severityFor(ev('declared', 'degraded'), true)).toBe('moderate');
+    expect(severityFor(ev('declared', 'degraded'), false)).toBe('minor');
+  });
+  it('single UNCONFIRMED vantage (watch) => minor regardless of criticality', () => {
+    expect(severityFor(ev('watch', null), true)).toBe('minor');
+    expect(severityFor(ev('watch', null), false)).toBe('minor');
   });
 });
 

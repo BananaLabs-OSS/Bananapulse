@@ -31,25 +31,64 @@ function affectedHeadline(): string {
 }
 
 const headline = view.isRoot
-  ? (ok ? 'All systems operational' : affectedHeadline())
+  ? (ok ? 'All systems up' : affectedHeadline())
   : `${view.nodeName} — ${STATUS_LABEL[view.status]}`;
 
-const pathLabel = view.crumbs.map((c) => c.label).join(' / ');
+// "Degraded HOW" — name the worst thing below (severity + where) so the rolled-up
+// status explains itself, e.g. "Major outage in Provisioner · +2 more". Incidents
+// are pre-sorted worst-first by the builder.
+const worstInc = view.subtreeIncidents[0];
+const moreCount = Math.max(0, view.subtreeIncidents.length - 1);
+// Banner subtitle: WHAT'S wrong (worst issue, named) when down, else the node's own
+// descriptor (service) or a healthy summary. Not a breadcrumb — that's below.
+const subtitle = !ok
+  ? worstInc
+    ? `${severityLabel(worstInc.severity)} in ${worstInc.affectedName ?? view.nodeName}${moreCount > 0 ? ` · +${moreCount} more` : ''}`
+    : STATUS_LABEL[view.status]
+  : view.level === 'service' ? (view.nodeTag ?? '') : 'All services up';
 const inlineSingle = view.children.length === 0 && view.attachedIncidents.length === 1;
-const showList = view.attachedIncidents.length > 0 && !inlineSingle;
-// Worst-first per the disclosure rule.
-const SEV_RANK: Record<string, number> = { major: 3, moderate: 2, minor: 1 };
-const sortedIncidents = [...view.attachedIncidents].sort((a, b) => (SEV_RANK[b.severity] ?? 0) - (SEV_RANK[a.severity] ?? 0));
+// List every incident in the subtree (worst-first, built in components.ts) — the
+// quick "what's wrong below me / jump to it" list, surfaced at parent scopes too.
+const showList = !inlineSingle && view.subtreeIncidents.length > 0;
+// Day-status → bar colour for the 90-day uptime strip (no-data = grey).
+const DAY_COLOR: Record<string, string> = {
+  ok: 'var(--ok)', deg: 'var(--degr)', out: 'var(--major)', maint: 'var(--maint)', future: 'var(--line2)',
+};
 ---
+{view.maintenance.map((m) => {
+  const prominent = m.kind === 'emergency'; // only emergencies get the big banner; scheduled stays a quiet strip
+  return (
+    <div class:list={["maintbar", m.kind === 'emergency' && 'emergency', m.active && 'active', !prominent && 'compact']}>
+      <span class="mtag">{m.kind === 'emergency' ? 'Emergency maintenance' : m.active ? 'Maintenance in progress' : 'Scheduled'}</span>
+      <div class="mbody">
+        <strong>{m.title}</strong>
+        <span class="mwhen">{formatDate(m.start)} {formatTime(m.start)} – {formatTime(m.end)}{prominent && m.summary ? `  ·  ${m.summary}` : ''}</span>
+      </div>
+    </div>
+  );
+})}
+
 <div class="banner" style={`--bc:${bannerColor}`}>
   <span class="ic"></span>
   <div>
     <h1>{headline}</h1>
-    <p>{pathLabel}{view.maintCount ? `  ·  ${view.maintCount} scheduled` : ''}</p>
+    <p>{subtitle}{view.maintCount ? `  ·  ${view.maintCount} scheduled` : ''}</p>
   </div>
 </div>
 
 <SkinCrumbs crumbs={view.crumbs} />
+
+<div class="seclbl">Status</div>
+<div class="row static" style={`--leg:${ok ? 'var(--ok)' : STATUS_COLOR[view.status]}`}>
+  <div>
+    <div class="nm">{ok ? 'Up' : STATUS_LABEL[view.status]}</div>
+    <div class="kd">{view.uptimePct}% uptime · 90 days</div>
+  </div>
+  <span class="st" style={`color:${ok ? 'var(--ok)' : STATUS_COLOR[view.status]}`}>{STATUS_LABEL[view.status]}</span>
+  <div class="upwrap">
+    <div class="bars">{view.uptime.map((d) => (<span style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
+  </div>
+</div>
 
 {inlineSingle && (
   <IncidentDetail incident={view.attachedIncidents[0]} affectedPath={affectedPath} inline />
@@ -58,11 +97,11 @@ const sortedIncidents = [...view.attachedIncidents].sort((a, b) => (SEV_RANK[b.s
 {showList && (
   <>
     <div class="seclbl">Active incidents</div>
-    {sortedIncidents.map((i) => (
+    {view.subtreeIncidents.map((i) => (
       <a class="row" href={`/incident/${i.id}`} style={`--leg:${severityColor(i.severity)}`}>
         <div>
           <div class="nm">{i.title}</div>
-          <div class="kd">{i.id} · {incidentStatusLabel(i.status).toLowerCase()} · {i.auto === false ? 'manual' : 'auto'} · since {formatDate(i.started)} {formatTime(i.started)}</div>
+          <div class="kd">{i.affectedName ? `${i.affectedName} · ` : ''}{incidentStatusLabel(i.status).toLowerCase()} · since {formatDate(i.started)} {formatTime(i.started)}</div>
         </div>
         <span class="st" style={`color:${severityColor(i.severity)}`}>{severityLabel(i.severity)}</span>
         <span class="chev">›</span>
@@ -90,6 +129,10 @@ const sortedIncidents = [...view.attachedIncidents].sort((a, b) => (SEV_RANK[b.s
           ) : null}
           <span class="st" style={quiet ? 'color:var(--muted)' : `color:${col}`}>{STATUS_LABEL[c.status]}</span>
           <span class="chev">›</span>
+          <div class="upwrap">
+            <div class="bars">{c.uptime.map((d) => (<span style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
+            <span class="up">{c.uptimePct}%</span>
+          </div>
         </a>
       );
     })}

@@ -10,15 +10,12 @@ export const GET: APIRoute = async ({ locals }) => {
   try {
     // Derive from the components tree so this AGREES with /api/v1/summary.json.
     const services = await getPublicLeafComponents(scope || null);
-    // Fold the root's effective (worst-of-subtree) status in as the floor so an
-    // incident declared directly on a non-leaf product/org node — which never
-    // appears in the leaf list — still moves `overall`. Keeps status.json in
-    // agreement with summary.json/HTML regardless of which node kind is DECLARED.
+    // The root's effective status already incorporates the partial-outage floor
+    // (a subset of children down = degraded, not outage) AND any incident declared
+    // on a non-leaf node. Use it directly so `overall` AGREES with the HTML /
+    // summary.json — worst-of-raw-leaves would re-introduce the un-floored outage.
     const root = await buildSummaryTree(scope || null);
-    const overall = worstStatus([
-      ...(services as any),
-      ...(root ? [{ status: root.status }] : []),
-    ] as any);
+    const overall = root ? root.status : worstStatus(services as any);
     const activeIncidents = await getActiveIncidents(scope || undefined);
     const maintenances = await getUpcomingMaintenance(scope || undefined);
 
@@ -50,7 +47,12 @@ export const GET: APIRoute = async ({ locals }) => {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=30',
+        // s-maxage makes Netlify's CDN edge-cache this SSR response so repeat
+        // hits (UptimeRobot, badges, real consumers) are served from the edge,
+        // NOT a fresh function invocation each time — the meter that blew the
+        // free-tier cap and 503'd the site (2026-06-18). max-age covers browsers.
+        'Cache-Control': 'public, max-age=30, s-maxage=30, stale-while-revalidate=60',
+        'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
         'Access-Control-Allow-Origin': '*',
       },
     });

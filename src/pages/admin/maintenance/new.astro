@@ -9,6 +9,7 @@ import { maintenance } from '@/db/schema';
 import { nanoid } from 'nanoid';
 import { getResource } from '@/lib/admin/resources';
 import { componentExists, isLeafComponent } from '@/lib/components';
+import { notifyMaintenance } from '@/lib/notify';
 import { componentOptions } from '@/lib/admin/view';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
 
@@ -20,6 +21,7 @@ if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const title = form.get('title')?.toString() ?? '';
   const summary = form.get('summary')?.toString() ?? '';
+  const kind = form.get('kind')?.toString() || 'scheduled';
   const start = form.get('scheduledStart')?.toString() ?? '';
   const end = form.get('scheduledEnd')?.toString() ?? '';
   const affects = form.getAll('affects').map((a) => a.toString()).filter(Boolean);
@@ -34,11 +36,34 @@ if (Astro.request.method === 'POST') {
   } else if (unknown) {
     error = `Unknown or non-leaf component "${unknown}".`;
   } else {
+    const newId = nanoid();
     await db.insert(maintenance).values({
-      id: nanoid(), title, summary,
+      id: newId, title, summary, kind,
       scheduledStart: new Date(start), scheduledEnd: new Date(end), affects,
     });
+    await notifyMaintenance(newId, 'announced'); // email subscribers (best-effort, self-guarded)
+    // (Instances may hook emergency windows here — e.g. light up an external banner.)
     return Astro.redirect('/admin/maintenance');
+  }
+}
+
+// Quick presets: ?preset=tuesday prefills the weekly Tuesday-evening window;
+// ?preset=emergency prefills an immediate emergency window. User still confirms.
+const preset = Astro.url.searchParams.get('preset');
+let record: Record<string, unknown> = {};
+if (Astro.request.method !== 'POST' && preset) {
+  const now = new Date();
+  if (preset === 'emergency') {
+    record = { kind: 'emergency', title: 'Emergency maintenance',
+      summary: 'Applying an urgent fix — brief disruption possible.',
+      scheduledStart: now, scheduledEnd: new Date(now.getTime() + 60 * 60000) };
+  } else if (preset === 'tuesday') {
+    const t = new Date(now);
+    t.setDate(now.getDate() + ((2 - now.getDay() + 7) % 7 || 7)); // next Tuesday
+    t.setHours(22, 0, 0, 0);
+    record = { kind: 'scheduled', title: 'Weekly platform maintenance',
+      summary: 'Routine Tuesday-evening maintenance. Servers may restart briefly.',
+      scheduledStart: t, scheduledEnd: new Date(t.getTime() + 60 * 60000) };
   }
 }
 
@@ -48,6 +73,6 @@ const properties = await propertyOptions();
 ---
 <AdminShell title="Schedule maintenance" active="maintenance" adminEmail={adminEmail} counts={counts} property="all" properties={properties}
   secondaryAction={{ href: '/admin/maintenance', label: '← All maintenance' }}>
-  <ResourceForm resource={resource} mode="create" action="/admin/maintenance/new"
+  <ResourceForm resource={resource} mode="create" action="/admin/maintenance/new" record={record as any}
     dynamic={{ components }} error={error} submitLabel="Schedule" cancelHref="/admin/maintenance" />
 </AdminShell>

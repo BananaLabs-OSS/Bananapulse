@@ -34,7 +34,7 @@ function rateLimited(ip: string): boolean {
  * Accepts { email }. Idempotent on the unique email; always acks with {ok:true}
  * for a valid email (anti-enumeration — never reveals whether it already existed).
  */
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, url }) => {
   if (rateLimited(clientIp(request))) {
     return new Response(
       JSON.stringify({ ok: false, error: 'Too many requests. Please try again shortly.' }),
@@ -55,7 +55,7 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     try {
-      await addSubscriber(email);
+      await addSubscriber(email, url.origin);
     } catch (_e) {
       // Duplicate (already subscribed) or transient — still ack to avoid leaking state.
     }

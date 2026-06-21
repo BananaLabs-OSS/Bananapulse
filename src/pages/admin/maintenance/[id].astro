@@ -23,10 +23,12 @@ if (Astro.request.method === 'POST') {
   const action = form.get('_action')?.toString();
   if (action === 'delete') {
     await db.delete(maintenance).where(eq(maintenance.id, id));
+    // (Instances may hook cancellation here — e.g. clear an external banner.)
     return Astro.redirect('/admin/maintenance');
   }
   const title = form.get('title')?.toString() ?? '';
   const summary = form.get('summary')?.toString() ?? '';
+  const kind = form.get('kind')?.toString() || 'scheduled';
   const start = form.get('scheduledStart')?.toString() ?? '';
   const end = form.get('scheduledEnd')?.toString() ?? '';
   const affects = form.getAll('affects').map((a) => a.toString()).filter(Boolean);
@@ -34,7 +36,7 @@ if (Astro.request.method === 'POST') {
     error = 'All fields are required.';
   } else {
     await db.update(maintenance).set({
-      title, summary, scheduledStart: new Date(start), scheduledEnd: new Date(end), affects,
+      title, summary, kind, scheduledStart: new Date(start), scheduledEnd: new Date(end), affects,
     }).where(eq(maintenance.id, id));
     return Astro.redirect('/admin/maintenance');
   }
