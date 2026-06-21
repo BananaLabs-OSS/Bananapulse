@@ -54,6 +54,16 @@ const showList = !inlineSingle && view.subtreeIncidents.length > 0;
 const DAY_COLOR: Record<string, string> = {
   ok: 'var(--ok)', deg: 'var(--degr)', out: 'var(--major)', maint: 'var(--maint)', future: 'var(--line2)',
 };
+// Hover label for each uptime bar. Bars run oldest→newest left→right, newest = today,
+// so bar i (of len) is (len-1-i) days ago — title shows that date + the day's status.
+const DAY_LABEL: Record<string, string> = {
+  ok: 'Up', deg: 'Degraded', out: 'Down', maint: 'Maintenance', future: 'No data',
+};
+function barTitle(dayStatus: string, idx: number, len: number): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - (len - 1 - idx));
+  return `${formatDate(d.toISOString())} · ${DAY_LABEL[dayStatus] ?? 'No data'}`;
+}
 ---
 {view.maintenance.map((m) => {
   const prominent = m.kind === 'emergency'; // only emergencies get the big banner; scheduled stays a quiet strip
@@ -86,7 +96,7 @@ const DAY_COLOR: Record<string, string> = {
   </div>
   <span class="st" style={`color:${ok ? 'var(--ok)' : STATUS_COLOR[view.status]}`}>{STATUS_LABEL[view.status]}</span>
   <div class="upwrap">
-    <div class="bars">{view.uptime.map((d) => (<span style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
+    <div class="bars">{view.uptime.map((d, i) => (<span title={barTitle(d, i, view.uptime.length)} style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
   </div>
 </div>
 
@@ -130,7 +140,7 @@ const DAY_COLOR: Record<string, string> = {
           <span class="st" style={quiet ? 'color:var(--muted)' : `color:${col}`}>{STATUS_LABEL[c.status]}</span>
           <span class="chev">›</span>
           <div class="upwrap">
-            <div class="bars">{c.uptime.map((d) => (<span style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
+            <div class="bars">{c.uptime.map((d, i) => (<span title={barTitle(d, i, c.uptime.length)} style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
             <span class="up">{c.uptimePct}%</span>
           </div>
         </a>
