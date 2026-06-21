@@ -36,6 +36,31 @@ function uptimeArr(c: { uptime90d?: unknown } | undefined): string[] {
   const a = c?.uptime90d;
   return Array.isArray(a) ? (a as string[]) : [];
 }
+// Normalize stored uptime into a 90-day CALENDAR window ending TODAY. Entries are
+// real `{date, status}` objects (written by the ingest adapters); each is placed on
+// its actual calendar day, every other day is 'future' (= no data, grey). NO invented
+// history: legacy dateless bare-string placeholders are ignored. All components share
+// the same today-anchored window, so the positional rollup below stays date-aligned —
+// and bar index i maps to the real date (today − (89−i)), matching the skin's hover.
+function windowedDays(stored: unknown): string[] {
+  const byDate = new Map<string, string>();
+  if (Array.isArray(stored)) {
+    for (const e of stored) {
+      if (e && typeof e === 'object' && 'date' in (e as any) && 'status' in (e as any)) {
+        byDate.set(String((e as any).date), String((e as any).status));
+      }
+    }
+  }
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const out: string[] = [];
+  for (let i = 89; i >= 0; i--) {
+    const d = new Date(today);
+    d.setUTCDate(today.getUTCDate() - i);
+    out.push(byDate.get(d.toISOString().slice(0, 10)) ?? 'future');
+  }
+  return out;
+}
 function uptimePctOf(a: string[]): number {
   const withData = a.filter((d) => d && d !== 'future');
   if (withData.length === 0) return 100;
@@ -54,11 +79,11 @@ const RANK_DAY = ['ok', 'maint', 'deg', 'out'];
 function derivedUptime(t: Tree, id: string, memo: Map<string, string[]>): string[] {
   const hit = memo.get(id);
   if (hit) return hit;
-  const own = uptimeArr(t.byId.get(id) as { uptime90d?: unknown });
+  const own = windowedDays((t.byId.get(id) as { uptime90d?: unknown })?.uptime90d);
   const kids = t.kids.get(id) ?? [];
   let out: string[];
   if (kids.length === 0) {
-    out = own.length ? own.slice(0, 90) : Array(90).fill('ok');
+    out = own; // already a 90-day calendar window (missing days = 'future' / no data)
   } else {
     const kidData = kids.map((k) => ({ crit: (k as { kind?: string }).kind === 'critical', days: derivedUptime(t, k.id, memo) }));
     out = Array.from({ length: 90 }, (_, d) => {

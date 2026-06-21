@@ -7,7 +7,7 @@
  * degraded/outage rows carry status color on the capsule leg.
  */
 import type { ScopeView } from '../../lib/view';
-import { STATUS_COLOR, STATUS_LABEL, severityColor, severityLabel } from '../../lib/skin-copy';
+import { STATUS_COLOR, statusWordFor, statusColorFor, severityColor, severityLabel } from '../../lib/skin-copy';
 import { incidentStatusLabel, formatDate, formatTime } from '../../lib/types';
 import SkinCrumbs from './SkinCrumbs.astro';
 import IncidentDetail from './IncidentDetail.astro';
@@ -21,7 +21,7 @@ interface Props {
 const { view, affectedPath } = Astro.props;
 const ok = view.status === 'operational';
 // Healthy banner shows the brand accent; a problem banner shows the status color.
-const bannerColor = ok ? 'var(--ac)' : STATUS_COLOR[view.status];
+const bannerColor = ok ? 'var(--ac)' : statusColorFor(view.level, view.status);
 
 function affectedHeadline(): string {
   const names = view.affectedChildNames;
@@ -31,8 +31,10 @@ function affectedHeadline(): string {
 }
 
 const headline = view.isRoot
-  ? (ok ? 'All systems up' : affectedHeadline())
-  : `${view.nodeName} — ${STATUS_LABEL[view.status]}`;
+  ? (ok
+      ? (view.level === 'umbrella' ? 'All Systems Operational' : `${view.nodeName} — ${statusWordFor(view.level, 'operational')}`)
+      : affectedHeadline())
+  : `${view.nodeName} — ${statusWordFor(view.level, view.status)}`;
 
 // "Degraded HOW" — name the worst thing below (severity + where) so the rolled-up
 // status explains itself, e.g. "Major outage in Provisioner · +2 more". Incidents
@@ -44,7 +46,7 @@ const moreCount = Math.max(0, view.subtreeIncidents.length - 1);
 const subtitle = !ok
   ? worstInc
     ? `${severityLabel(worstInc.severity)} in ${worstInc.affectedName ?? view.nodeName}${moreCount > 0 ? ` · +${moreCount} more` : ''}`
-    : STATUS_LABEL[view.status]
+    : statusWordFor(view.level, view.status)
   : view.level === 'service' ? (view.nodeTag ?? '') : 'All services up';
 const inlineSingle = view.children.length === 0 && view.attachedIncidents.length === 1;
 // List every incident in the subtree (worst-first, built in components.ts) — the
@@ -89,14 +91,14 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
 <SkinCrumbs crumbs={view.crumbs} />
 
 <div class="seclbl">Status</div>
-<div class="row static" style={`--leg:${ok ? 'var(--ok)' : STATUS_COLOR[view.status]}`}>
+<div class="row static" style={`--leg:${statusColorFor(view.level, view.status)}`}>
   <div>
-    <div class="nm">{ok ? 'Up' : STATUS_LABEL[view.status]}</div>
+    <div class="nm">{statusWordFor(view.level, view.status)}</div>
     <div class="kd">{view.uptimePct}% uptime · 90 days</div>
   </div>
-  <span class="st" style={`color:${ok ? 'var(--ok)' : STATUS_COLOR[view.status]}`}>{STATUS_LABEL[view.status]}</span>
+  <span class="st" style={`color:${statusColorFor(view.level, view.status)}`}>{statusWordFor(view.level, view.status)}</span>
   <div class="upwrap">
-    <div class="bars">{view.uptime.map((d, i) => (<span title={barTitle(d, i, view.uptime.length)} style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
+    <div class="bars">{view.uptime.map((d, i) => (<span class:list={[i === view.uptime.length - 1 && 'today']} title={barTitle(d, i, view.uptime.length)} style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
   </div>
 </div>
 
@@ -124,8 +126,8 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
   <>
     <div class="seclbl">{view.isRoot ? (view.level === 'umbrella' ? 'Products' : 'Services') : `Within ${view.nodeName}`}</div>
     {view.children.map((c) => {
-      const quiet = c.status === 'operational';
-      const col = STATUS_COLOR[c.status];
+      const col = statusColorFor(c.kind, c.status);
+      const quiet = col === 'var(--ok)'; // operational, or a degraded SERVICE (reads "Up")
       return (
         <a class="row" href={c.href} style={`--leg:${quiet ? 'var(--line2)' : col}`}>
           <div>
@@ -137,10 +139,10 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
           ) : c.maintCount > 0 ? (
             <span class="badge" style="background:color-mix(in srgb, var(--maint) 13%, transparent);color:var(--maint)">{c.maintCount} scheduled</span>
           ) : null}
-          <span class="st" style={quiet ? 'color:var(--muted)' : `color:${col}`}>{STATUS_LABEL[c.status]}</span>
+          <span class="st" style={quiet ? 'color:var(--muted)' : `color:${col}`}>{statusWordFor(c.kind, c.status)}</span>
           <span class="chev">›</span>
           <div class="upwrap">
-            <div class="bars">{c.uptime.map((d, i) => (<span title={barTitle(d, i, c.uptime.length)} style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
+            <div class="bars">{c.uptime.map((d, i) => (<span class:list={[i === c.uptime.length - 1 && 'today']} title={barTitle(d, i, c.uptime.length)} style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
             <span class="up">{c.uptimePct}%</span>
           </div>
         </a>
@@ -148,3 +150,13 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
     })}
   </>
 )}
+
+<style>
+  /* The current (in-progress) day pulses to read as LIVE — its colour still tracks
+     the real-time status; the animation only signals "this one is now / unfinished". */
+  @keyframes today-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.38; } }
+  .bars span.today { animation: today-pulse 1.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    .bars span.today { animation: none; outline: 1px solid currentColor; outline-offset: 1px; }
+  }
+</style>
