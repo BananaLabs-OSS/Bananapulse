@@ -28,7 +28,7 @@
  */
 import { db } from '@/db';
 import { incidents, incidentTimeline, components, maintenance } from '@/db/schema';
-import { eq, desc, and, isNull } from 'drizzle-orm';
+import { eq, ne, desc, and, isNull } from 'drizzle-orm';
 import { sendIncidentEmail } from './email';
 import { listConfirmedSubscribers, buildUnsubscribeUrl } from './subscribers';
 import { UMBRELLA_ID, COMPANY, STATUS_DOMAIN, scopeBrand } from '@/pulse.config';
