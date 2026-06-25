@@ -118,6 +118,7 @@ export async function getResolvedIncidents(opts?: {
   service?: string;
   limit?: number;
   offset?: number;
+  noTimeline?: boolean; // history LISTS don't need per-incident timelines — skip the N extra queries
 }): Promise<Incident[]> {
   const rows = await db.select().from(incidents)
     .where(eq(incidents.status, 'resolved'))
@@ -137,8 +138,8 @@ export async function getResolvedIncidents(opts?: {
   const paged = filtered.slice(offset, offset + limit);
 
   return Promise.all(paged.map(async (row) => {
-    const tl = await buildTimeline(row.id);
-    const prod = opts?.product ?? await resolveProduct(row.affects);
+    const tl = opts?.noTimeline ? [] : await buildTimeline(row.id);
+    const prod = opts?.product ?? (opts?.noTimeline ? '' : await resolveProduct(row.affects));
     return mapDbIncident(row, tl, prod);
   }));
 }
