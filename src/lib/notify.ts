@@ -28,10 +28,11 @@
  */
 import { db } from '@/db';
 import { incidents, incidentTimeline, components, maintenance } from '@/db/schema';
-import { eq, ne, desc, and, isNull, sql } from 'drizzle-orm';
+import { eq, desc, and, isNull } from 'drizzle-orm';
 import { sendIncidentEmail } from './email';
 import { listConfirmedSubscribers, buildUnsubscribeUrl } from './subscribers';
 import { UMBRELLA_ID, COMPANY, STATUS_DOMAIN, scopeBrand } from '@/pulse.config';
+import { openIncidentFor } from './quorum';
 
 /** What kind of lifecycle event we are narrating to subscribers. */
 export type NotifyKind = 'opened' | 'update' | 'resolved';
@@ -44,13 +45,6 @@ export interface IncidentSnapshot {
 }
 
 /* ── snapshot / diff (the engine-path hook) ──────────────────── */
-
-/** Find the open (non-resolved) incident attached to a component, if any. */
-async function openIncidentFor(componentId: string) {
-  const rows = await db.select().from(incidents)
-    .where(and(ne(incidents.status, 'resolved'), sql`${componentId} = ANY(${incidents.affects})`));
-  return rows[0] ?? null;
-}
 
 /**
  * Capture the open-incident state for a component BEFORE the engine runs, so
