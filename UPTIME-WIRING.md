@@ -103,8 +103,10 @@ as the component id.
 - **Idempotency** — UptimeRobot retries are deduped (same monitor+state+time).
 - **Observed time** — uses UptimeRobot's own `alertDateTime`, so delayed/retried
   webhooks order correctly and can't clobber newer readings.
-- **Dead-man** — an UptimeRobot observation expires after ~10 min, so a probe that
-  goes silent goes stale instead of pinning the last reading forever.
+- **Dead-man** — an UptimeRobot observation expires after 24h by default (env
+  `UPTIME_HOOK_TTL_SECONDS`), so a probe that goes silent goes stale instead of
+  pinning the last reading forever. 24h covers any realistic sustained outage while
+  still acting as a far-out backstop if UptimeRobot itself dies mid-outage.
 - **Back-compat** — the old `{ "service_id", "status" }` shape still works.
 
 (Grafana Cloud uses the sibling endpoint `/api/v1/ingest/grafana`, same `?key=`
