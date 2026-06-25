@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro';
 import { db } from '@/db';
 import { incidents, incidentTimeline } from '@/db/schema';
-import { validateApiToken } from '@/lib/api-tokens';
+import { requireApiToken } from '@/lib/api-tokens';
 import { componentExists, isLeafComponent } from '@/lib/components';
 import { eq, desc, and, arrayContains } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
@@ -9,18 +9,8 @@ import { nanoid } from 'nanoid';
 const VALID_SEVERITY = ['minor', 'moderate', 'major'];
 const VALID_STATUS = ['investigating', 'identified', 'monitoring', 'resolved'];
 
-async function authenticate(request: Request, requiredScope: 'read' | 'write' | 'full') {
-  const auth = request.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return null;
-  const token = await validateApiToken(auth.slice(7));
-  if (!token) return null;
-  const scopeRank: Record<string, number> = { read: 1, write: 2, full: 3 };
-  if ((scopeRank[token.scope] ?? 0) < (scopeRank[requiredScope] ?? 3)) return null;
-  return token;
-}
-
 export const GET: APIRoute = async ({ request, url }) => {
-  const token = await authenticate(request, 'read');
+  const token = await requireApiToken(request, 'read');
   if (!token) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid or insufficient API token.' } }), { status: 401 });
 
   const status = url.searchParams.get('status');
@@ -41,7 +31,7 @@ export const GET: APIRoute = async ({ request, url }) => {
 };
 
 export const POST: APIRoute = async ({ request }) => {
-  const token = await authenticate(request, 'write');
+  const token = await requireApiToken(request, 'write');
   if (!token) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid or insufficient API token.' } }), { status: 401 });
 
   const body = await request.json();

@@ -96,3 +96,10 @@ export async function setComponentArchived(id: string, archived: boolean) {
   if (live) throw new ArchiveBlockedError(live);
   await db.update(components).set({ archivedAt: new Date() }).where(inArray(components.id, ids));
 }
+
+/** Load the (active) component tree once as a parent lookup map. */
+export async function loadComponentTree() {
+  const rows = await db.select({ id: components.id, parentId: components.parentId, kind: components.kind })
+    .from(components).where(isNull(components.archivedAt));
+  return new Map(rows.map((r) => [r.id, r]));
+}

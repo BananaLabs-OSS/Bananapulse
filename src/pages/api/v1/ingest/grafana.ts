@@ -82,7 +82,7 @@ function json(body: unknown, status: number) {
 }
 
 function secretMatches(provided: string, secret: string): boolean {
-  if (provided.length !== secret.length) return false;
+  if (!provided || provided.length !== secret.length) return false;
   return timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
 }
 

@@ -1,17 +1,13 @@
 import type { APIRoute } from 'astro';
 import { db } from '@/db';
 import { incidents, incidentTimeline } from '@/db/schema';
-import { validateApiToken } from '@/lib/api-tokens';
+import { requireApiToken } from '@/lib/api-tokens';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
 export const POST: APIRoute = async ({ request, params }) => {
-  const auth = request.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid API token.' } }), { status: 401 });
-  const token = await validateApiToken(auth.slice(7));
-  if (!token) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid API token.' } }), { status: 401 });
-  const scopeRank: Record<string, number> = { read: 1, write: 2, full: 3 };
-  if ((scopeRank[token.scope] ?? 0) < 2) return new Response(JSON.stringify({ error: { code: 'forbidden', message: 'Write scope required.' } }), { status: 403 });
+  const token = await requireApiToken(request, 'write');
+  if (!token) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid or insufficient API token.' } }), { status: 401 });
 
   const body = await request.json();
   const { label, body: entryBody } = body;
