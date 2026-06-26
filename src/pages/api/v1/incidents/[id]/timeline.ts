@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro';
 import { db } from '@/db';
 import { incidents, incidentTimeline } from '@/db/schema';
 import { requireApiToken } from '@/lib/api-tokens';
+import { notifyIncident } from '@/lib/notify';
 import { eq } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 
@@ -23,13 +24,16 @@ export const POST: APIRoute = async ({ request, params }) => {
   }
 
   const id = nanoid();
+  const upperLabel = label.toUpperCase();
   await db.insert(incidentTimeline).values({
     id,
     incidentId: params.id!,
     at: new Date(),
-    label: label.toUpperCase(),
+    label: upperLabel,
     body: entryBody,
   });
+  // Fan out to subscribers, mirroring the admin /updates path.
+  await notifyIncident(params.id!, upperLabel === 'RESOLVED' ? 'resolved' : 'update');
 
-  return new Response(JSON.stringify({ data: { id, incidentId: params.id, label: label.toUpperCase(), body: entryBody } }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify({ data: { id, incidentId: params.id, label: upperLabel, body: entryBody } }), { status: 201, headers: { 'Content-Type': 'application/json' } });
 };

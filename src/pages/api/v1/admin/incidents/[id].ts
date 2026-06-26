@@ -67,18 +67,22 @@ export const PATCH: APIRoute = async (ctx) => {
     if (body.status === 'resolved') {
       // Force-resolve through the engine (manual 'ok' observation), NOT a bare
       // status flip — otherwise the next sweep sees a live manual non-ok read
-      // and re-opens a zombie auto-incident. Mirrors resolve.ts.
+      // and re-opens a zombie auto-incident. Mirrors resolve.ts and the public PATCH.
+      // Loop over ALL affected components so multi-component incidents are fully
+      // cleared and don't leave zombie re-open state on the next sweep.
       const manual = await getManualSource();
-      const before = await snapshotComponent(inc.affects[0]);
-      await recordManualOverride({
-        manualSourceId: manual.id,
-        componentId: inc.affects[0],
-        signal: 'ok',
-        body: body.note || `Resolved by ${who}.`,
-        author: who,
-        now,
-      });
-      await notifyForComponent(inc.affects[0], before);
+      for (const componentId of inc.affects) {
+        const before = await snapshotComponent(componentId);
+        await recordManualOverride({
+          manualSourceId: manual.id,
+          componentId,
+          signal: 'ok',
+          body: body.note || `Resolved by ${who}.`,
+          author: who,
+          now,
+        });
+        await notifyForComponent(componentId, before);
+      }
     } else {
       await db.update(incidents).set({ status: body.status }).where(eq(incidents.id, id));
       await db.insert(incidentTimeline).values({

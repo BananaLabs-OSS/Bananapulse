@@ -25,16 +25,20 @@ export const POST: APIRoute = async (ctx) => {
 
   const body = await ctx.request.json().catch(() => ({}));
   const manual = await getManualSource();
-  const componentId = inc.affects[0];
-  const before = await snapshotComponent(componentId);
-  await recordManualOverride({
-    manualSourceId: manual.id,
-    componentId,
-    signal: 'ok',
-    body: body?.body || `Resolved by ${who}.`,
-    author: who,
-  });
-  await notifyForComponent(componentId, before);
+  // Loop over ALL affected components so multi-component incidents are fully
+  // cleared and don't leave zombie re-open state on the next sweep.
+  // Mirrors the public PATCH /api/v1/incidents/:id resolve path.
+  for (const componentId of inc.affects) {
+    const before = await snapshotComponent(componentId);
+    await recordManualOverride({
+      manualSourceId: manual.id,
+      componentId,
+      signal: 'ok',
+      body: body?.body || `Resolved by ${who}.`,
+      author: who,
+    });
+    await notifyForComponent(componentId, before);
+  }
 
   const updated = await db.select().from(incidents).where(eq(incidents.id, id));
   return ok(updated[0]);
