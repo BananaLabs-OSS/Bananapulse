@@ -1,0 +1,60 @@
+name: bananapulse-local
+
+services:
+  pulp-host:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.pulp-host
+      additional_contexts:
+        pulp: ../../Pulp
+        pulp_ext_http: ../../Pulp-ext-http
+        pulp_ext_sqlite: ../../Pulp-ext-sqlite
+        pulp_ext_entropy: ../../Pulp-ext-entropy
+        pulp_ext_fs: ../../Pulp-ext-fs
+        pulp_ext_udp: ../../Pulp-ext-udp
+    environment:
+      PULP_APP_MANIFEST: /app/application/pulp.app.toml
+      PULP_BRIDGE_ADDR: 0.0.0.0:8788
+      PULP_BRIDGE_TOKEN: ${PULP_BRIDGE_TOKEN:?set PULP_BRIDGE_TOKEN outside the repository}
+      PULP_STORAGE_ROOT: /data
+      PULP_BRIDGE_ENABLE_MONITOR_ADMIN: "false"
+      PULP_BRIDGE_ENABLE_MONITOR_INGEST: "false"
+      PULP_BRIDGE_ENABLE_MONITOR_SWEEP: "false"
+      PULP_BRIDGE_ENABLE_SUBSCRIBER_ADMIN: "false"
+      PULP_BRIDGE_ENABLE_MIGRATION: "false"
+      PULP_BRIDGE_ENABLE_AUTH: "false"
+      PULP_BRIDGE_ENABLE_AUTH_ADMIN: "false"
+      PULP_BRIDGE_ENABLE_SOURCE_ADMIN: "false"
+      PULP_LEGACY_IMPORT_ENABLED: "false"
+      PULP_LEGACY_IMPORT_REVERIFY_COMPLETED: "false"
+    expose:
+      - "8788"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8788/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+    volumes:
+      - pulp-data:/data
+
+  astro:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile.astro-local
+    depends_on:
+      pulp-host:
+        condition: service_healthy
+    environment:
+      HOST: 0.0.0.0
+      NODE_ENV: production
+      PORT: "4321"
+      PULP_BRIDGE_TOKEN: ${PULP_BRIDGE_TOKEN:?set PULP_BRIDGE_TOKEN outside the repository}
+      PULP_BRIDGE_URL: http://pulp-host:8788
+      SITE_URL: ${SITE_URL:-http://127.0.0.1:4321}
+    ports:
+      - "${BANANAPULSE_HTTP_PORT:-4321}:4321"
+    restart: unless-stopped
+
+volumes:
+  pulp-data:

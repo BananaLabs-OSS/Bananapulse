@@ -11,10 +11,13 @@ import AdminShell from '@/layouts/AdminShell.astro';
 import { getComponentsAdmin } from '@/lib/db-components';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
 import { COMPANY, SITE_TITLE, STATUS_DOMAIN } from '@/pulse.config';
+import { componentAdminRow, monitorAdminOwnerConfigured, monitorOwnerProjection } from '@/pages/api/v1/admin/components/pulp-owner';
 
 const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
 // Product scopes live on the components tree (kind = product, with a domain).
-const products = (await getComponentsAdmin({ archived: false })).filter((c) => c.kind === 'product');
+const products = (monitorAdminOwnerConfigured()
+  ? (await monitorOwnerProjection(false)).components.map(({ component }) => componentAdminRow(component))
+  : await getComponentsAdmin({ archived: false })).filter((c) => c.kind === 'product');
 const withDomain = products.filter((p) => p.domain);
 const counts = await navCounts();
 const properties = await propertyOptions();

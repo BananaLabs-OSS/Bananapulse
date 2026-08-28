@@ -1,6 +1,10 @@
 import type { APIRoute } from 'astro';
 import { listSubscribers } from '@/lib/subscribers';
 import { validateApiToken } from '@/lib/api-tokens';
+import {
+  listSubscribersWithOwner,
+  pulpOwnerRouteFamilyConfigured,
+} from '@/lib/pulp-bridge';
 
 export const GET: APIRoute = async ({ request }) => {
   const auth = request.headers.get('Authorization');
@@ -11,6 +15,12 @@ export const GET: APIRoute = async ({ request }) => {
   // monitoring token must not be able to dump every subscriber email).
   const scopeRank: Record<string, number> = { read: 1, write: 2, full: 3 };
   if ((scopeRank[token.scope] ?? 0) < 3) return new Response(JSON.stringify({ error: { code: 'forbidden', message: 'Full scope required.' } }), { status: 403 });
+  if (pulpOwnerRouteFamilyConfigured('subscriber-admin')) {
+    const result = await listSubscribersWithOwner();
+    return new Response(JSON.stringify({
+      data: result.subscribers.map(({ state: _state, ...subscriber }) => subscriber),
+    }), { headers: { 'Content-Type': 'application/json' } });
+  }
   const rows = await listSubscribers();
   return new Response(JSON.stringify({ data: rows }), { headers: { 'Content-Type': 'application/json' } });
 };

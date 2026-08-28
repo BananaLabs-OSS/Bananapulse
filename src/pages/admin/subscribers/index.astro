@@ -10,19 +10,27 @@ import { eq, desc } from 'drizzle-orm';
 import { getResource } from '@/lib/admin/resources';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
 import { pillHtml, fmtDate } from '@/lib/admin/view';
+import { deleteSubscriberWithOwner, listSubscribersWithOwner, pulpOwnerRequestID, pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
 
 const resource = getResource('subscribers')!;
 const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+const useOwner = pulpOwnerRouteFamilyConfigured('subscriber-admin');
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   if (form.get('_action')?.toString() === 'delete') {
-    await db.delete(subscribers).where(eq(subscribers.id, form.get('id')?.toString() ?? ''));
+    const id = form.get('id')?.toString() ?? '';
+    if (useOwner) await deleteSubscriberWithOwner(pulpOwnerRequestID('admin-subscriber-delete', id), id);
+    else await db.delete(subscribers).where(eq(subscribers.id, id));
   }
   return Astro.redirect('/admin/subscribers');
 }
 
-const rows = await db.select().from(subscribers).orderBy(desc(subscribers.createdAt));
+const rows = useOwner
+  ? (await listSubscribersWithOwner()).subscribers.map((row) => ({
+    id: row.id, email: row.email, confirmedAt: row.confirmedAt, createdAt: row.createdAt,
+  }))
+  : await db.select().from(subscribers).orderBy(desc(subscribers.createdAt));
 const counts = await navCounts();
 const properties = await propertyOptions();
 ---

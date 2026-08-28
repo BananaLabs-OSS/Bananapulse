@@ -38,6 +38,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { getOrCreateAdapterSource, resolveTarget } from '@/lib/sources';
 import { appendObservation, type Signal } from '@/lib/quorum';
 import { snapshotComponent, notifyForComponent } from '@/lib/notify';
+import { callPulpEvent, PULP_EVENTS, PulpBridgeError, pulpOwnerRequestID, pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
 
 /**
  * TTL for UptimeRobot observations. UptimeRobot is a TRANSITION-ONLY webhook: it
@@ -67,6 +68,12 @@ const SIGNAL_TO_BAR: Record<Signal, string> = { ok: 'ok', degraded: 'deg', down:
 function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
+
+type OwnerProjection = { sources: Array<{ id: string; name: string; kind: string; revoked?: boolean }>; mappings: Array<{ source_id: string; raw_label: string; component_id: string }>; components: Array<{ component: { id: string; archived?: boolean; uptime_90d?: unknown[] } }> };
+function ownerFailure(error: unknown) { const status = error instanceof PulpBridgeError && error.status < 500 ? error.status : 503; return json({ error: { code: 'owner_unavailable', message: 'UptimeRobot owner is unavailable.' } }, status); }
+async function ownerProjection(): Promise<OwnerProjection> { return callPulpEvent(PULP_EVENTS.monitorQuery, { version: 'monitor.v1', include_archived: true, at_unix: Math.floor(Date.now() / 1000) }); }
+function ownerBar(current: unknown[] | undefined, status: string) { const today = new Date().toISOString().split('T')[0]; const values = Array.isArray(current) ? [...current] : []; const i = values.findIndex((v: any) => v?.date === today); const next = { date: today, status }; if (i >= 0) values[i] = next; else values.push(next); return values.slice(-90); }
+async function ownerIngest(sourceId: string, raw: string, signal: Signal, detail: string, observedAt: Date | null, expiresIn: number, componentId: string, uptime: unknown[]) { const now = observedAt ?? new Date(); const observedAtUnix = Math.floor(now.getTime() / 1000); const eventKey = `${sourceId}\0${raw}\0${signal}\0${observedAtUnix}`; return callPulpEvent('bananapulse.monitor.ingest.authenticated.v1', { version: 'monitor.v1', id: pulpOwnerRequestID('uptime-ingest', eventKey), kind: 'ingest_observation', at_unix: Math.floor(Date.now() / 1000), component_patch: { id: componentId, uptime_90d: uptime }, ingest: { observation_id: pulpOwnerRequestID('observation', eventKey), source_id: sourceId, raw_label: raw, signal, detail, observed_at_unix: observedAtUnix, expires_at_unix: observedAtUnix + expiresIn } }); }
 
 function secretMatches(provided: string, secret: string): boolean {
   if (!provided || provided.length !== secret.length) return false;
@@ -127,7 +134,15 @@ export const POST: APIRoute = async ({ request }) => {
   try { body = await request.json(); }
   catch { return json({ error: { code: 'bad_request', message: 'Body must be JSON.' } }, 400); }
 
-  const source = await getOrCreateAdapterSource('UptimeRobot', 'probe');
+  const useOwner = pulpOwnerRouteFamilyConfigured('ingest');
+  let owner: OwnerProjection | null = null;
+  let ownerSource: OwnerProjection['sources'][number] | undefined;
+  if (useOwner) {
+    try { owner = await ownerProjection(); ownerSource = owner.sources.find((source) => source.name === 'UptimeRobot' && source.kind === 'probe' && !source.revoked); }
+    catch (error) { return ownerFailure(error); }
+    if (!ownerSource) return json({ error: { code: 'owner_unavailable', message: 'UptimeRobot owner source is not migrated.' } }, 503);
+  }
+  const source = useOwner ? null : await getOrCreateAdapterSource('UptimeRobot', 'probe');
 
   // ── NATIVE UptimeRobot payload (has alertType) ───────────────────────────
   if (body?.alertType !== undefined) {
@@ -144,7 +159,8 @@ export const POST: APIRoute = async ({ request }) => {
     if (mapped === 'ssl') {
       return json({ data: { accepted: false, reason: 'ssl-notification-informational', target: raw } }, 202);
     }
-    const componentId = await resolveTarget(source.id, raw);
+    const ownerMapping = owner?.mappings.find((mapping) => mapping.source_id === ownerSource?.id && mapping.raw_label === raw);
+    const componentId = useOwner ? ownerMapping?.component_id ?? null : await resolveTarget(source!.id, raw);
     if (!componentId) {
       return json({
         error: {
@@ -156,10 +172,16 @@ export const POST: APIRoute = async ({ request }) => {
     const observedAt = parseUptimeObservedAt(body.alertDateTime) ?? undefined;
     const detail = (typeof body.alertDetails === 'string' && body.alertDetails) || `uptime:${body.monitorFriendlyName ?? raw}`;
 
+    if (useOwner) {
+      const component = owner!.components.find((entry) => entry.component.id === componentId)?.component;
+      if (!component || component.archived) return json({ error: { code: 'unmapped_target', message: `No mapping for UptimeRobot target "${raw}". Add a source_target_map row, or name the monitor to match a component id.` } }, 422);
+      try { const result: any = await ownerIngest(ownerSource!.id, raw, mapped, (typeof body.alertDetails === 'string' && body.alertDetails) || `uptime:${body.monitorFriendlyName ?? raw}`, parseUptimeObservedAt(body.alertDateTime), UPTIME_OBS_TTL_SECONDS, componentId, ownerBar(component.uptime_90d, SIGNAL_TO_BAR[mapped])); return json({ data: { accepted: true, component_id: componentId, signal: mapped, deduped: !!result.deduped } }, 202); }
+      catch (error) { return ownerFailure(error); }
+    }
     await bump90d(componentId, SIGNAL_TO_BAR[mapped]);
     const before = await snapshotComponent(componentId);
     const { deduped } = await appendObservation({
-      sourceId: source.id,
+      sourceId: source!.id,
       componentId,
       signal: mapped,
       detail,
@@ -180,6 +202,19 @@ export const POST: APIRoute = async ({ request }) => {
   if (!mapped) {
     return json({ error: { code: 'bad_request', message: `status must be one of: ${Object.keys(LEGACY_SIGNAL_MAP).join(', ')}` } }, 400);
   }
+  if (useOwner) {
+    const mapping = owner!.mappings.find((entry) => entry.source_id === ownerSource!.id && entry.raw_label === serviceId);
+    const component = mapping && owner!.components.find((entry) => entry.component.id === mapping.component_id)?.component;
+    if (!mapping || !component || component.archived) return json({ error: { code: 'not_found', message: 'Component not found.' } }, 404);
+    const uptime = ownerBar(component.uptime_90d, status === 'maint' ? 'maint' : SIGNAL_TO_BAR[mapped as Signal]);
+    try {
+      if (mapped === 'maint') {
+        if (!pulpOwnerRouteFamilyConfigured('monitor-admin')) return json({ error: { code: 'owner_unavailable', message: 'UptimeRobot maintenance owner is unavailable.' } }, 503);
+        await callPulpEvent('bananapulse.monitor.admin.command.v1', { version: 'monitor.v1', id: pulpOwnerRequestID('uptime-maint', `${mapping.component_id}\0${JSON.stringify(uptime)}`), kind: 'edit_component', at_unix: Math.floor(Date.now() / 1000), component_patch: { id: mapping.component_id, uptime_90d: uptime } });
+      } else await ownerIngest(ownerSource!.id, serviceId, mapped, 'uptimerobot', null, UPTIME_OBS_TTL_SECONDS, mapping.component_id, uptime);
+      return json({ data: { updated: true } }, 200);
+    } catch (error) { return ownerFailure(error); }
+  }
   const rows = await db.select().from(components).where(eq(components.id, serviceId));
   const svc = rows[0];
   if (!svc || svc.archivedAt != null) {
@@ -191,7 +226,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (mapped !== 'maint') {
     const before = await snapshotComponent(serviceId);
     await appendObservation({
-      sourceId: source.id,
+      sourceId: source!.id,
       componentId: serviceId, // legacy: the raw label IS the component id
       signal: mapped,
       detail: 'uptimerobot',

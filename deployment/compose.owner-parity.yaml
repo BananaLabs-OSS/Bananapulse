@@ -1,0 +1,33 @@
+# Apply after compose.local.yaml to exercise every completed owner cutover:
+# docker compose -f deployment/compose.local.yaml -f deployment/compose.owner-parity.yaml up --build
+services:
+  pulp-host:
+    environment:
+      PULP_BRIDGE_TOKEN: ${PULP_BRIDGE_TOKEN:?set PULP_BRIDGE_TOKEN outside the repository}
+      PULP_BRIDGE_ENABLE_MONITOR_ADMIN: "true"
+      PULP_BRIDGE_ENABLE_MONITOR_INGEST: "true"
+      PULP_BRIDGE_ENABLE_MONITOR_SWEEP: "true"
+      PULP_BRIDGE_ENABLE_SUBSCRIBER_ADMIN: "true"
+      PULP_BRIDGE_ENABLE_MIGRATION: "false"
+      PULP_BRIDGE_ENABLE_AUTH: "true"
+      PULP_BRIDGE_ENABLE_AUTH_ADMIN: "true"
+      PULP_BRIDGE_ENABLE_SOURCE_ADMIN: "true"
+      PULP_LEGACY_IMPORT_ENABLED: "false"
+      PULP_LEGACY_IMPORT_REVERIFY_COMPLETED: "false"
+
+  astro:
+    environment:
+      PULP_BRIDGE_URL: http://pulp-host:8788
+      PULP_BRIDGE_TOKEN: ${PULP_BRIDGE_TOKEN:?set PULP_BRIDGE_TOKEN outside the repository}
+      PULP_MONITOR_OWNER_ENABLED: "true"
+      PULP_MONITOR_ADMIN_OWNER_ENABLED: "true"
+      PULP_INGEST_OWNER_ENABLED: "true"
+      PULP_INCIDENTS_OWNER_ENABLED: "true"
+      PULP_MAINTENANCE_OWNER_ENABLED: "true"
+      PULP_SWEEP_OWNER_ENABLED: "true"
+      PULP_SUBSCRIBERS_OWNER_ENABLED: "true"
+      PULP_SUBSCRIBERS_ADMIN_OWNER_ENABLED: "true"
+      PULP_AUTH_OWNER_ENABLED: "true"
+      PULP_SUBSCRIBER_TOKEN_SECRET: ${PULP_SUBSCRIBER_TOKEN_SECRET:?set PULP_SUBSCRIBER_TOKEN_SECRET outside the repository}
+      ADMIN_SESSION_SECRET: ${ADMIN_SESSION_SECRET:?set ADMIN_SESSION_SECRET outside the repository}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?set ADMIN_EMAIL outside the repository}

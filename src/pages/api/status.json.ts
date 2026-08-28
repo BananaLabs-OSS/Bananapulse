@@ -3,11 +3,25 @@ import { getPublicLeafComponents, buildSummaryTree } from '../../lib/components'
 import { getActiveIncidents } from '../../lib/db-incidents';
 import { getUpcomingMaintenance } from '../../lib/db-maintenance';
 import { worstStatus, statusToState } from '../../lib/types';
+import { getMonitorProjection, pulpMonitorProjectionConfigured } from '../../lib/pulp-bridge';
+import { buildPulpStatusJSON } from '../../lib/pulp-monitor-projection';
 
 export const GET: APIRoute = async ({ locals }) => {
   const scope = (locals as any).scope as string | null;
 
   try {
+    if (pulpMonitorProjectionConfigured()) {
+      const owner = buildPulpStatusJSON(await getMonitorProjection(), scope || null);
+      return new Response(JSON.stringify(owner, null, 2), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'public, max-age=30, s-maxage=30, stale-while-revalidate=60',
+          'Netlify-CDN-Cache-Control': 'public, s-maxage=30, stale-while-revalidate=60',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
     // Derive from the components tree so this AGREES with /api/v1/summary.json.
     const services = await getPublicLeafComponents(scope || null);
     // The root's effective status already incorporates the partial-outage floor
@@ -15,6 +29,7 @@ export const GET: APIRoute = async ({ locals }) => {
     // on a non-leaf node. Use it directly so `overall` AGREES with the HTML /
     // summary.json — worst-of-raw-leaves would re-introduce the un-floored outage.
     const root = await buildSummaryTree(scope || null);
+    if (!root) throw new Error('scope root is missing');
     const overall = root ? root.status : worstStatus(services as any);
     const activeIncidents = await getActiveIncidents(scope || undefined);
     const maintenances = await getUpcomingMaintenance(scope || undefined);

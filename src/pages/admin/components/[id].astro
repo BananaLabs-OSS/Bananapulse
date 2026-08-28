@@ -10,6 +10,7 @@ import { componentExists, descendantIds } from '@/lib/components';
 import { getResource, COMPONENT_KIND_OPTIONS } from '@/lib/admin/resources';
 import { componentParentOptions } from '@/lib/admin/view';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
+import { componentAdminRow, monitorAdminCommand, monitorAdminOwnerConfigured, monitorOwnerProjection, ownerRequestID } from '@/pages/api/v1/admin/components/pulp-owner';
 
 const KINDS = COMPONENT_KIND_OPTIONS.map((o) => o.value);
 const { id } = Astro.params;
@@ -21,7 +22,26 @@ let error = '';
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const action = form.get('_action')?.toString();
-  if (action === 'archive') {
+  if (monitorAdminOwnerConfigured()) {
+    try {
+      if (action === 'archive' || action === 'unarchive') await monitorAdminCommand({
+        id: ownerRequestID(`admin-component-${action}`, Astro.request, id),
+        kind: action === 'archive' ? 'archive_component' : 'restore_component', component_id: id,
+      });
+      else {
+        const name = form.get('name')?.toString() ?? '';
+        const kind = form.get('kind')?.toString() ?? '';
+        if (!name || !kind) error = 'Name and kind are required.';
+        else if (!KINDS.includes(kind)) error = `Kind must be one of: ${KINDS.join(', ')}.`;
+        else await monitorAdminCommand({ id: ownerRequestID('admin-component-edit', Astro.request, id), kind: 'edit_component', component_patch: {
+          id, name, kind, parent_id: form.get('parentId')?.toString() || '', tag: form.get('tag')?.toString() || '',
+          brand: form.get('brand')?.toString() || '', domain: form.get('domain')?.toString() || '',
+          sort_order: parseInt(form.get('sortOrder')?.toString() ?? '0') || 0,
+        }});
+      }
+      if (!error) return Astro.redirect('/admin/components');
+    } catch (cause) { error = cause instanceof Error ? cause.message : 'Component owner request failed.'; }
+  } else if (action === 'archive') {
     try { await setComponentArchived(id, true); return Astro.redirect('/admin/components'); }
     catch (e) { if (e instanceof ArchiveBlockedError) error = e.message; else throw e; }
   } else if (action === 'unarchive') { await setComponentArchived(id, false); return Astro.redirect('/admin/components'); }
@@ -53,8 +73,12 @@ if (Astro.request.method === 'POST') {
   }
 }
 
-const record = await getComponentRow(id);
+const record = monitorAdminOwnerConfigured()
+  ? (await monitorOwnerProjection(true)).components.map(({ component }) => component).find((component) => component.id === id)
+  : await getComponentRow(id);
 if (!record) return Astro.redirect('/admin/components');
+const formRecord = monitorAdminOwnerConfigured() ? componentAdminRow(record as any) : record;
+const isArchived = monitorAdminOwnerConfigured() ? Boolean((record as any).archived) : Boolean((record as any).archivedAt);
 
 const componentParents = await componentParentOptions();
 const counts = await navCounts();
@@ -63,9 +87,9 @@ const properties = await propertyOptions();
 <AdminShell title={record.name} active="components" adminEmail={adminEmail} counts={counts} property="all" properties={properties}
   secondaryAction={{ href: '/admin/components', label: '← All components' }}>
   <ResourceForm resource={resource} mode="edit" action={`/admin/components/${id}`}
-    record={record as any} dynamic={{ componentParents }} error={error} cancelHref="/admin/components" />
+    record={formRecord as any} dynamic={{ componentParents }} error={error} cancelHref="/admin/components" />
   <form method="POST" style="margin-top:16px">
-    <input type="hidden" name="_action" value={record.archivedAt ? 'unarchive' : 'archive'} />
-    <button class="btn danger" type="submit">{record.archivedAt ? 'Restore component' : 'Archive component'}</button>
+    <input type="hidden" name="_action" value={isArchived ? 'unarchive' : 'archive'} />
+    <button class="btn danger" type="submit">{isArchived ? 'Restore component' : 'Archive component'}</button>
   </form>
 </AdminShell>

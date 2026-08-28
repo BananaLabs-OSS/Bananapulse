@@ -2,8 +2,8 @@
 /**
  * Sources & Tokens — register a source, issue/rotate its bearer token (shown
  * once), set weight + default TTL, and map raw_label → component. One-time-ish
- * config. All mutations go through lib/sources.ts so the engine's token scheme
- * stays the single source of truth.
+ * config. With the source-owner gate enabled, monitor state and credentials
+ * are routed to their Pulp owners; otherwise this remains the legacy adapter.
  */
 import AdminShell from '@/layouts/AdminShell.astro';
 import { db } from '@/db';
@@ -11,62 +11,158 @@ import { sources, sourceTargetMap } from '@/db/schema';
 import { eq } from 'drizzle-orm';
 import { createSource, listSources, revokeSource, mapTarget, removeMapping, type SourceKind } from '@/lib/sources';
 import { hashToken, generateToken } from '@/lib/api-tokens';
+import { nanoid } from 'nanoid';
 import { getResource, SOURCE_KIND_OPTIONS } from '@/lib/admin/resources';
 import { componentOptions, pillHtml } from '@/lib/admin/view';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
+import {
+  createSourceWithOwnerSaga,
+  mappingAdminRow,
+  monitorAdminCommand,
+  monitorOwnerProjection,
+  ownerError,
+  ownerRequestID,
+  revokeSourceWithOwnerSaga,
+  sourceAdminRow,
+  sourceOwnerConfigured,
+  rotateSourceCredential,
+} from '@/pages/api/v1/admin/components/pulp-owner';
 
 const resource = getResource('sources')!;
 const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
 let newToken: string | null = null;
 let error = '';
+const useOwner = sourceOwnerConfigured();
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const action = form.get('_action')?.toString();
 
-  if (action === 'create') {
-    const name = form.get('name')?.toString() ?? '';
-    if (!name) { error = 'A source name is required.'; }
-    else {
-      const ttl = form.get('defaultTtl')?.toString();
-      const result = await createSource({
-        name,
-        kind: (form.get('kind')?.toString() as SourceKind) ?? 'push',
-        weight: Number(form.get('weight')?.toString() || '1'),
-        trusted: form.get('trusted')?.toString() === 'true',
-        defaultTtl: ttl ? Number(ttl) : null,
-      });
-      newToken = result.token;
+  try {
+    if (useOwner) {
+      const projection = await monitorOwnerProjection(true);
+      if (action === 'create') {
+        const name = form.get('name')?.toString() ?? '';
+        if (!name) error = 'A source name is required.';
+        else {
+          const id = nanoid();
+          const token = generateToken();
+          const ttl = form.get('defaultTtl')?.toString();
+          await createSourceWithOwnerSaga({
+            request_id: ownerRequestID('source-lifecycle-create', Astro.request, id),
+            source: {
+              id, name, kind: form.get('kind')?.toString() ?? 'push',
+              weight: Number(form.get('weight')?.toString() || '1'),
+              trusted: form.get('trusted')?.toString() === 'true',
+              direct_targets: false,
+              default_ttl_seconds: ttl ? Number(ttl) : null, revoked: false,
+            },
+            credential_id: nanoid(), token, actor_id: adminEmail,
+            created_at: new Date().toISOString(),
+          });
+          newToken = token;
+        }
+      }
+      if (action === 'trust') {
+        const sid = form.get('source_id')?.toString() ?? '';
+        const to = form.get('trusted')?.toString() === 'true';
+        if (sid && projection.sources.some((source) => source.id === sid)) {
+          await monitorAdminCommand({
+            id: ownerRequestID('source-trust', Astro.request, sid), kind: 'edit_source',
+            source_patch: { id: sid, trusted: to },
+          });
+        }
+      }
+      if (action === 'rotate') {
+        const sid = form.get('source_id')?.toString() ?? '';
+        if (projection.sources.some((source) => source.id === sid)) {
+          const token = generateToken();
+          await rotateSourceCredential({
+            request_id: ownerRequestID('source-credential-rotate', Astro.request, sid),
+            credential_id: nanoid(), source_id: sid, token, actor_id: adminEmail,
+            rotated_at: new Date().toISOString(),
+          });
+          newToken = token;
+        }
+      }
+      if (action === 'revoke') {
+        const sid = form.get('source_id')?.toString() ?? '';
+        if (projection.sources.some((source) => source.id === sid)) {
+          await revokeSourceWithOwnerSaga({
+            request_id: ownerRequestID('source-lifecycle-revoke', Astro.request, sid),
+            source_id: sid, actor_id: adminEmail, revoked_at: new Date().toISOString(),
+          });
+        }
+      }
+      if (action === 'map') {
+        const sid = form.get('source_id')?.toString() ?? '';
+        const raw = form.get('raw_label')?.toString() ?? '';
+        const comp = form.get('component_id')?.toString() ?? '';
+        if (sid && raw && comp) {
+          const existing = projection.mappings.find((mapping) => mapping.source_id === sid && mapping.raw_label === raw);
+          const id = existing?.id ?? nanoid();
+          await monitorAdminCommand({
+            id: ownerRequestID('source-map', Astro.request, id), kind: 'map_source_target',
+            mapping: { id, source_id: sid, raw_label: raw, component_id: comp },
+          });
+        }
+      }
+      if (action === 'unmap') {
+        const id = form.get('map_id')?.toString() ?? '';
+        if (id && projection.mappings.some((mapping) => mapping.id === id)) {
+          await monitorAdminCommand({
+            id: ownerRequestID('source-unmap', Astro.request, id), kind: 'unmap_source_target', mapping_id: id,
+          });
+        }
+      }
+    } else {
+      if (action === 'create') {
+        const name = form.get('name')?.toString() ?? '';
+        if (!name) { error = 'A source name is required.'; }
+        else {
+          const ttl = form.get('defaultTtl')?.toString();
+          const result = await createSource({
+            name, kind: (form.get('kind')?.toString() as SourceKind) ?? 'push',
+            weight: Number(form.get('weight')?.toString() || '1'),
+            trusted: form.get('trusted')?.toString() === 'true', defaultTtl: ttl ? Number(ttl) : null,
+          });
+          newToken = result.token;
+        }
+      }
+      if (action === 'trust') {
+        const sid = form.get('source_id')?.toString() ?? '';
+        const to = form.get('trusted')?.toString() === 'true';
+        if (sid) await db.update(sources).set({ trusted: to }).where(eq(sources.id, sid));
+      }
+      if (action === 'rotate') {
+        const sid = form.get('source_id')?.toString() ?? '';
+        const raw = generateToken();
+        await db.update(sources).set({ tokenHash: hashToken(raw) }).where(eq(sources.id, sid));
+        newToken = raw;
+      }
+      if (action === 'revoke') await revokeSource(form.get('source_id')?.toString() ?? '');
+      if (action === 'map') {
+        const sid = form.get('source_id')?.toString() ?? '';
+        const raw = form.get('raw_label')?.toString() ?? '';
+        const comp = form.get('component_id')?.toString() ?? '';
+        if (sid && raw && comp) await mapTarget(sid, raw, comp);
+      }
+      if (action === 'unmap') await removeMapping(form.get('map_id')?.toString() ?? '');
     }
-  }
-  if (action === 'trust') {
-    const sid = form.get('source_id')?.toString() ?? '';
-    const to = form.get('trusted')?.toString() === 'true';
-    if (sid) await db.update(sources).set({ trusted: to }).where(eq(sources.id, sid));
-  }
-  if (action === 'rotate') {
-    const sid = form.get('source_id')?.toString() ?? '';
-    const raw = generateToken();
-    await db.update(sources).set({ tokenHash: hashToken(raw) }).where(eq(sources.id, sid));
-    newToken = raw;
-  }
-  if (action === 'revoke') {
-    await revokeSource(form.get('source_id')?.toString() ?? '');
-  }
-  if (action === 'map') {
-    const sid = form.get('source_id')?.toString() ?? '';
-    const raw = form.get('raw_label')?.toString() ?? '';
-    const comp = form.get('component_id')?.toString() ?? '';
-    if (sid && raw && comp) await mapTarget(sid, raw, comp);
-  }
-  if (action === 'unmap') {
-    await removeMapping(form.get('map_id')?.toString() ?? '');
+  } catch (cause) {
+    error = ownerError(cause).message;
   }
 }
 
-const list = await listSources();
-const maps = await db.select().from(sourceTargetMap);
-const components = await componentOptions();
+const ownerProjection = useOwner ? await monitorOwnerProjection(true) : null;
+const list = ownerProjection ? ownerProjection.sources.map(sourceAdminRow) : await listSources();
+const maps = ownerProjection ? ownerProjection.mappings.map(mappingAdminRow) : await db.select().from(sourceTargetMap);
+const components = ownerProjection
+  ? ownerProjection.components
+    .map(({ component }) => component)
+    .filter((component) => !component.archived && (component.kind === 'service' || component.kind === 'host'))
+    .map((component) => ({ value: component.id, label: `${component.name} Â· ${component.kind}` }))
+  : await componentOptions();
 const counts = await navCounts();
 const properties = await propertyOptions();
 const compName = (id: string) => components.find((c) => c.value === id)?.label ?? id;

@@ -6,7 +6,13 @@
  * their own auth; this is only for the human-facing CMS write surface.
  */
 import type { APIContext } from 'astro';
-import { verifyCookie, validateSession, COOKIE_NAME } from './admin-auth';
+import {
+  verifyCookie,
+  validateSession,
+  validateSessionWithOwner,
+  COOKIE_NAME,
+} from './admin-auth';
+import { pulpOwnerRouteFamilyConfigured } from './pulp-bridge';
 
 /** Resolve the admin email from the session cookie, or null if unauthenticated. */
 export async function adminEmailFromRequest(ctx: APIContext): Promise<string | null> {
@@ -21,6 +27,12 @@ export async function adminEmailFromRequest(ctx: APIContext): Promise<string | n
   if (!secret) return null;
   const sessionId = verifyCookie(signed, secret);
   if (!sessionId) return null;
+  if (pulpOwnerRouteFamilyConfigured('auth')) {
+    // Once auth-owner mode is selected, the private owner is authoritative.
+    // An unavailable/rejected owner request propagates; it must never fall
+    // through to the legacy admin_sessions table.
+    return validateSessionWithOwner(sessionId);
+  }
   return validateSession(sessionId);
 }
 

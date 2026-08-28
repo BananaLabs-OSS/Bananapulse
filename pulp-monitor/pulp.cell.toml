@@ -1,0 +1,22 @@
+# Generic, restart-safe monitoring state owner.  It has no HTTP, email,
+# subscriber, or admin-auth capability: callers own those edge concerns.
+name = "pulp-monitor"
+version = "1.1.0"
+wasm = "pulp-monitor.wasm"
+wasm_sha256 = "76a749911d1273b7ae5cfc5d1a4468ee86add8d9c81da2dc410d538574f4f97f"
+provides = [
+  "monitor.v1.catalog",
+  "monitor.v1.command",
+  "monitor.v1.query",
+  "monitor.v1.projection",
+]
+consumes = []
+capabilities = ["storage.sqlite"]
+
+[execution]
+mode = "fusible"
+group = "bananapulse-sqlite-core"
+abi = "pulp-linear-v1"
+
+[config]
+storage_namespace = "bananapulse/monitor/v1"

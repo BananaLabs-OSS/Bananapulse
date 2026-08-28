@@ -20,14 +20,106 @@ import { getManualSource } from '@/lib/sources';
 import { recordManualOverride, type Level } from '@/lib/quorum';
 import { pillHtml, fmtDateTime } from '@/lib/admin/view';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
+import { pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
+import {
+  legacyIncident,
+  legacyTimeline,
+  newOwnerCommand,
+  ownerIncident,
+  publishIncidentCommand,
+  sendIncidentCommand,
+  type OwnerIncident,
+} from '@/pages/api/v1/incidents/owner';
 
 const { id } = Astro.params;
 if (!id) return Astro.redirect('/admin/incidents');
 const who = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+const ownerMode = pulpOwnerRouteFamilyConfigured('incidents');
+
+async function resolveOwnedIncident(incident: OwnerIncident, note: string) {
+  const command = newOwnerCommand('resolve', `${id}:resolve:${note}`, {
+    incident: { id },
+  });
+  if (['moderate', 'major'].includes(incident.severity)) {
+    await publishIncidentCommand(command, {
+      eventId: `${id}:resolved:${command.id}`,
+      subject: `Resolved: ${incident.title}`,
+      body: note,
+    });
+  } else {
+    await sendIncidentCommand(command);
+  }
+}
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const action = form.get('_action')?.toString();
+  if (ownerMode) {
+    const owned = await ownerIncident(id);
+    if (owned) {
+      if (action === 'move_status') {
+        const status = form.get('status')?.toString() ?? '';
+        const note = form.get('note')?.toString() || `Status moved to ${status}.`;
+        const ALLOWED_STATUS = ['investigating', 'identified', 'monitoring', 'resolved'];
+        if (status === 'resolved') {
+          await resolveOwnedIncident(owned.incident, note);
+        } else if (ALLOWED_STATUS.includes(status)) {
+          const command = newOwnerCommand('edit', `${id}:status:${status}:${note}`, {
+            incident_patch: {
+              id, status, at_unix: Math.floor(Date.now() / 1_000),
+              author: who, note,
+            },
+          });
+          await publishIncidentCommand(command, {
+            eventId: `${id}:status:${command.id}`,
+            subject: `Update: ${owned.incident.title}`,
+            body: note,
+          });
+        }
+      }
+
+      if (action === 'post_update') {
+        const body = form.get('body')?.toString();
+        if (body) {
+          const updateId = nanoid();
+          const now = Math.floor(Date.now() / 1_000);
+          const label = owned.incident.status.toUpperCase();
+          const command = newOwnerCommand('update', `${id}:${updateId}`, {
+            at_unix: now,
+            update: { id: updateId, incident_id: id, at_unix: now, label, body, author: who },
+          });
+          await publishIncidentCommand(command, {
+            eventId: `${id}:update:${updateId}`,
+            subject: `${label === 'RESOLVED' ? 'Resolved' : 'Update'}: ${owned.incident.title}`,
+            body,
+          });
+        }
+      }
+
+      if (action === 'override_level') {
+        const severity = form.get('severity')?.toString() ?? 'major';
+        const ownerSeverity = severity === 'major' ? 'major' : 'moderate';
+        const note = form.get('note')?.toString() || `Level overridden to ${severity} by ${who}.`;
+        const command = newOwnerCommand('edit', `${id}:severity:${ownerSeverity}:${note}`, {
+          incident_patch: {
+            id, severity: ownerSeverity, at_unix: Math.floor(Date.now() / 1_000),
+            author: who, note,
+          },
+        });
+        await publishIncidentCommand(command, {
+          eventId: `${id}:severity:${command.id}`,
+          subject: `Update: ${owned.incident.title}`,
+          body: note,
+        });
+      }
+
+      if (action === 'resolve') {
+        const note = form.get('note')?.toString() || `Resolved by ${who}.`;
+        await resolveOwnedIncident(owned.incident, note);
+      }
+    }
+    return Astro.redirect(`/admin/incidents/${id}`);
+  }
   const cur = (await db.select().from(incidents).where(eq(incidents.id, id)))[0];
 
   if (cur) {
@@ -77,11 +169,14 @@ if (Astro.request.method === 'POST') {
   return Astro.redirect(`/admin/incidents/${id}`);
 }
 
-const rows = await db.select().from(incidents).where(eq(incidents.id, id));
-const incident = rows[0];
+const owned = ownerMode ? await ownerIncident(id) : null;
+const rows = ownerMode ? [] : await db.select().from(incidents).where(eq(incidents.id, id));
+const incident = ownerMode && owned ? legacyIncident(owned.incident) : rows[0];
 if (!incident) return Astro.redirect('/admin/incidents');
 
-const timeline = await db.select().from(incidentTimeline).where(eq(incidentTimeline.incidentId, id)).orderBy(desc(incidentTimeline.at));
+const timeline = ownerMode && owned
+  ? owned.timeline.sort((left, right) => right.at_unix - left.at_unix).map(legacyTimeline)
+  : await db.select().from(incidentTimeline).where(eq(incidentTimeline.incidentId, id)).orderBy(desc(incidentTimeline.at));
 // The engine owns 'investigating'/'identified' on its OWN (auto) incidents via
 // confidence (vantage count) — exposing them as manual toggles there just invites
 // fighting the engine. Humans own the RECOVERY direction (monitoring/resolved).

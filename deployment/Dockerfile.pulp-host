@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1.7
+
+FROM golang:1.25-bookworm AS build
+WORKDIR /workspace
+COPY --from=pulp . /workspace/Pulp
+COPY --from=pulp_ext_http . /workspace/Pulp-ext-http
+COPY --from=pulp_ext_sqlite . /workspace/Pulp-ext-sqlite
+COPY --from=pulp_ext_entropy . /workspace/Pulp-ext-entropy
+COPY --from=pulp_ext_fs . /workspace/Pulp-ext-fs
+COPY --from=pulp_ext_udp . /workspace/Pulp-ext-udp
+COPY pulp-host /workspace/Bananapulse/pulp-host
+COPY application /workspace/Bananapulse/application
+COPY pulp-monitor /workspace/Bananapulse/pulp-monitor
+COPY pulp-subscribers /workspace/Bananapulse/pulp-subscribers
+COPY pulp-auth /workspace/Bananapulse/pulp-auth
+WORKDIR /workspace/Bananapulse/pulp-host
+RUN CGO_ENABLED=0 go build -trimpath -o /out/bananapulse-pulp-host .
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN useradd --create-home --uid 10001 bananapulse \
+    && mkdir -p /app /data \
+    && chown -R bananapulse:bananapulse /app /data
+WORKDIR /app
+COPY --from=build /out/bananapulse-pulp-host ./bananapulse-pulp-host
+COPY --from=build /workspace/Bananapulse/application ./application
+COPY --from=build /workspace/Bananapulse/pulp-monitor ./pulp-monitor
+COPY --from=build /workspace/Bananapulse/pulp-subscribers ./pulp-subscribers
+COPY --from=build /workspace/Bananapulse/pulp-auth ./pulp-auth
+USER bananapulse
+EXPOSE 8788
+CMD ["./bananapulse-pulp-host"]

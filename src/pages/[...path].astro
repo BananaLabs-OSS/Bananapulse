@@ -10,24 +10,36 @@ import Skin from '../layouts/Skin.astro';
 import ScopeView from '../components/skin/ScopeView.astro';
 import NotFound from '../components/skin/NotFound.astro';
 import { buildComponentView } from '../lib/components';
+import { getMonitorProjection, pulpMonitorProjectionConfigured } from '../lib/pulp-bridge';
+import { buildPulpComponentView } from '../lib/pulp-monitor-projection';
 import { COMPANY } from '../pulse.config';
 
 const scope = (Astro.locals as any).scope as string | null;
 const raw = Astro.params.path;
 const segs = raw ? raw.split('/').filter(Boolean) : [];
+const ownerSelected = pulpMonitorProjectionConfigured();
 
 let view = null;
+let unavailable = false;
 try {
-  view = await buildComponentView(scope, segs);
+  view = ownerSelected
+    ? buildPulpComponentView(await getMonitorProjection(), scope, segs)
+    : await buildComponentView(scope, segs);
 } catch (_e) {
-  // DB unreachable — fall through to a styled not-found.
+  unavailable = ownerSelected;
+  // Owner mode stays fail-closed; legacy mode preserves its existing 404 behavior.
 }
-if (!view) Astro.response.status = 404;
+if (!view) Astro.response.status = unavailable ? 503 : 404;
 
 const affectedPath = view ? view.crumbs.map((c) => c.label) : [];
 ---
-<Skin scope={scope} title={view ? `${view.nodeName} Status` : 'Not found'}>
+<Skin scope={scope} title={view ? `${view.nodeName} Status` : unavailable ? 'Status unavailable' : 'Not found'}>
   {view
     ? <ScopeView view={view} scope={scope} companyName={COMPANY} affectedPath={affectedPath} />
-    : <NotFound message="That page doesn't exist on this status site." />}
+    : <NotFound
+        title={unavailable ? 'Status unavailable' : 'Not found'}
+        message={unavailable
+          ? 'Live status is temporarily unavailable. Please try again shortly.'
+          : "That page doesn't exist on this status site."}
+      />}
 </Skin>

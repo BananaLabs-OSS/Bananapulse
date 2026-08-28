@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "astro dev",
     "build": "astro build",
+    "build:local": "astro build --config deployment/astro.config.node.mjs",
+    "start:local": "node dist/server/entry.mjs",
     "preview": "astro preview",
     "check": "astro check",
     "astro": "astro",
@@ -17,6 +19,7 @@
   },
   "dependencies": {
     "@astrojs/netlify": "^6.3.0",
+    "@astrojs/node": "^9.5.5",
     "astro": "^5.7.0",
     "drizzle-orm": "^0.44.0",
     "nanoid": "^5.1.0",

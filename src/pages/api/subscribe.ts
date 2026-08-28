@@ -1,5 +1,11 @@
 import type { APIRoute } from 'astro';
 import { addSubscriber } from '@/lib/subscribers';
+import {
+  pulpSubscriberLifecycleConfigured,
+  subscribeWithOwner,
+  subscriberOwnerIdentity,
+} from '@/lib/pulp-bridge';
+import { COMPANY, SITE_TITLE } from '@/pulse.config';
 
 /**
  * Per-IP fixed-window rate limit for this unauthenticated write endpoint.
@@ -55,7 +61,21 @@ export const POST: APIRoute = async ({ request, url }) => {
     }
 
     try {
-      await addSubscriber(email, url.origin);
+      if (pulpSubscriberLifecycleConfigured()) {
+        const identity = subscriberOwnerIdentity(email);
+        const confirmationURL = `${url.origin.replace(/\/$/, '')}/api/subscribe/confirm?token=${encodeURIComponent(identity.confirmationToken)}`;
+        await subscribeWithOwner({
+          request_id: identity.requestId,
+          email,
+          confirmation_token: identity.confirmationToken,
+          unsubscribe_token: identity.unsubscribeToken,
+          confirmation_subject: `Confirm your ${SITE_TITLE} subscription`,
+          confirmation_body: `Confirm your subscription to receive status updates for ${COMPANY}:\n\n${confirmationURL}\n\nIf you didn't request this, ignore this email.`,
+          requested_at: new Date().toISOString(),
+        });
+      } else {
+        await addSubscriber(email, url.origin);
+      }
     } catch (_e) {
       // Duplicate (already subscribed) or transient — still ack to avoid leaking state.
     }

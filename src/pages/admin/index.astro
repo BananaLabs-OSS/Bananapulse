@@ -10,25 +10,39 @@ import { incidents, components, observations, sources } from '@/db/schema';
 import { ne, desc, sql } from 'drizzle-orm';
 import { pillHtml, fmtDateTime, evaluateAll } from '@/lib/admin/view';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
+import { monitorAdminOwnerConfigured, monitorOwnerProjection } from '@/pages/api/v1/admin/components/pulp-owner';
+import { incidentProjection, legacyIncident } from '@/pages/api/v1/incidents/owner';
 
 const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
 const property = Astro.url.searchParams.get('property') ?? 'all';
 
 // Evaluate every component WITHOUT reconciling (read-only situational snapshot).
-let evals: Awaited<ReturnType<typeof evaluateAll>> = [];
-try { evals = await evaluateAll(); } catch { evals = []; }
+const ownerMode = monitorAdminOwnerConfigured();
+const ownerProjection: any = ownerMode ? await monitorOwnerProjection(true) : null;
+let evals: any[] = [];
+if (ownerMode) evals = ownerProjection.components.map(({ component, evaluation }: any) => ({
+  componentId: component.id, state: evaluation.state, reducedCoverage: evaluation.reduced_coverage,
+  staleCount: evaluation.stale_count, nonOkCount: evaluation.non_ok_count, totalSources: evaluation.reads.length,
+}));
+else try { evals = await evaluateAll(); } catch { evals = []; }
 const declared = evals.filter((e) => e.state === 'declared');
 const watch = evals.filter((e) => e.state === 'watch');
 const stale = evals.filter((e) => e.reducedCoverage);
 
-const activeIncidents = await db.select().from(incidents).where(ne(incidents.status, 'resolved')).orderBy(desc(incidents.startedAt)).limit(20);
+const activeIncidents = ownerMode
+  ? ((await incidentProjection()).incidents?.filter((incident) => incident.status !== 'resolved').map(legacyIncident) ?? []).slice(0, 20)
+  : await db.select().from(incidents).where(ne(incidents.status, 'resolved')).orderBy(desc(incidents.startedAt)).limit(20);
 
 // Map componentId -> name for readable rows.
-const allSvc = await db.select({ id: components.id, name: components.name }).from(components);
-const nameOf = (id: string) => allSvc.find((s) => s.id === id)?.name ?? id;
+const allSvc = ownerMode ? ownerProjection.components.map(({ component }: any) => ({ id: component.id, name: component.name }))
+  : await db.select({ id: components.id, name: components.name }).from(components);
+const nameOf = (id: string) => allSvc.find((s: { id: string; name: string }) => s.id === id)?.name ?? id;
 
 // Recent observations (last 10) joined with source name.
-const recentObs = await db.execute<{ name: string; component_id: string; signal: string; detail: string | null; observed_at: Date }>(sql`
+const recentObs = ownerMode ? (ownerProjection.observations ?? []).slice(-10).reverse().map((o: any) => ({
+  name: ownerProjection.sources.find((source: any) => source.id === o.source_id)?.name ?? o.source_id,
+  component_id: o.component_id, signal: o.signal, detail: o.detail ?? null, observed_at: new Date(o.observed_at_unix * 1000),
+})) : await db.execute<{ name: string; component_id: string; signal: string; detail: string | null; observed_at: Date }>(sql`
   SELECT s.name, o.component_id, o.signal, o.detail, o.observed_at
   FROM ${observations} o JOIN ${sources} s ON s.id = o.source_id
   ORDER BY o.observed_at DESC LIMIT 10
@@ -91,7 +105,7 @@ const properties = await propertyOptions();
   <div class="tbl">
     <div class="tr head" style="grid-template-columns:1fr 1.2fr .8fr 1fr 30px"><span>Source</span><span>Component</span><span>Signal</span><span>At</span><span></span></div>
     {recentObs.length === 0 && <div class="tr" style="grid-template-columns:1fr 1.2fr .8fr 1fr 30px"><span class="muted">No observations yet.</span></div>}
-    {recentObs.map((o) => (
+    {recentObs.map((o: any) => (
       <div class="tr" style="grid-template-columns:1fr 1.2fr .8fr 1fr 30px">
         <span class="t">{o.name}</span>
         <span class="muted">{nameOf(o.component_id)}</span>

@@ -14,8 +14,15 @@ vi.mock('../../lib/components', () => ({
 }));
 vi.mock('../../lib/db-incidents', () => ({ getActiveIncidents: vi.fn(async () => []) }));
 vi.mock('../../lib/db-maintenance', () => ({ getUpcomingMaintenance: vi.fn(async () => []) }));
+vi.mock('../../lib/pulp-bridge', () => ({
+  pulpMonitorProjectionConfigured: vi.fn(() => false),
+  getMonitorProjection: vi.fn(),
+}));
+vi.mock('../../lib/pulp-monitor-projection', () => ({ buildPulpStatusJSON: vi.fn() }));
 
 import { getPublicLeafComponents, buildSummaryTree } from '../../lib/components';
+import { getMonitorProjection, pulpMonitorProjectionConfigured } from '../../lib/pulp-bridge';
+import { buildPulpStatusJSON } from '../../lib/pulp-monitor-projection';
 import { GET } from './status.json';
 
 const mockLeaves = vi.mocked(getPublicLeafComponents);
@@ -27,6 +34,7 @@ function ctx() {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(pulpMonitorProjectionConfigured).mockReturnValue(false);
 });
 
 describe('GET /api/status.json fail-closed (audit H1 regression)', () => {
@@ -60,5 +68,31 @@ describe('GET /api/status.json fail-closed (audit H1 regression)', () => {
     const body = await res.json();
     expect(body.status).toBe('unknown');
     expect(body.live).toBe(false);
+  });
+
+  it('REGRESSION: a missing scope root fails closed instead of treating an empty tree as operational', async () => {
+    mockLeaves.mockResolvedValue([] as any);
+    mockTree.mockResolvedValue(null);
+    const res = await GET(ctx());
+    expect(res.status).toBe(503);
+    const body = await res.json();
+    expect(body.status).toBe('unknown');
+    expect(body.live).toBe(false);
+  });
+
+  it('uses the composed owner projection when the Pulp bridge is configured', async () => {
+    vi.mocked(pulpMonitorProjectionConfigured).mockReturnValue(true);
+    vi.mocked(getMonitorProjection).mockResolvedValue({ version: 'monitor.v1' } as any);
+    vi.mocked(buildPulpStatusJSON).mockReturnValue({
+      status: 'degraded',
+      state: 'degraded',
+      services: [],
+      activeIncidents: [],
+      scheduledMaintenance: [],
+    });
+    const res = await GET(ctx());
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe('degraded');
+    expect(getPublicLeafComponents).not.toHaveBeenCalled();
   });
 });

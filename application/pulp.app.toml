@@ -1,0 +1,15 @@
+schema_version = 1
+name = "bananapulse"
+version = "1.0.0"
+require_wasm_sha256 = true
+cells = [
+  "../pulp-monitor/pulp.cell.toml",
+  "../pulp-subscribers/pulp.cell.toml",
+  "../pulp-auth/pulp.cell.toml",
+  "lua-orchestrator.cell.toml",
+]
+
+[orchestrator]
+manifest = "lua-orchestrator.cell.toml"
+script = "bananapulse.lua"
+sha256 = "ee21dac56431dd7c24f301f577cc6e76c65dc96a34b3caee33ee0af9891ddb7a"

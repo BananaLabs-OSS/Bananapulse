@@ -7,6 +7,16 @@ import { getManualSource } from '@/lib/sources';
 import { recordManualOverride } from '@/lib/quorum';
 import { snapshotComponent, notifyForComponent } from '@/lib/notify';
 import { eq, desc } from 'drizzle-orm';
+import { pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
+import {
+  legacyIncident,
+  legacyTimeline,
+  newOwnerCommand,
+  ownerFailure,
+  ownerIncident,
+  publishIncidentCommand,
+  sendIncidentCommand,
+} from './owner';
 
 const VALID_SEVERITY = ['minor', 'moderate', 'major'];
 const VALID_STATUS = ['investigating', 'identified', 'monitoring', 'resolved'];
@@ -14,6 +24,21 @@ const VALID_STATUS = ['investigating', 'identified', 'monitoring', 'resolved'];
 export const GET: APIRoute = async ({ request, params }) => {
   const token = await requireApiToken(request, 'read');
   if (!token) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid or insufficient API token.' } }), { status: 401 });
+
+  if (pulpOwnerRouteFamilyConfigured('incidents')) {
+    try {
+      const owned = await ownerIncident(params.id!);
+      if (!owned) return new Response(JSON.stringify({ error: { code: 'not_found', message: 'Incident not found.' } }), { status: 404 });
+      return new Response(JSON.stringify({ data: {
+        ...legacyIncident(owned.incident),
+        timeline: owned.timeline
+          .sort((left, right) => right.at_unix - left.at_unix)
+          .map(legacyTimeline),
+      } }), { headers: { 'Content-Type': 'application/json' } });
+    } catch (error) {
+      return ownerFailure(error);
+    }
+  }
 
   const rows = await db.select().from(incidents).where(eq(incidents.id, params.id!));
   if (!rows[0]) return new Response(JSON.stringify({ error: { code: 'not_found', message: 'Incident not found.' } }), { status: 404 });
@@ -29,9 +54,16 @@ export const PATCH: APIRoute = async ({ request, params }) => {
   const token = await requireApiToken(request, 'write');
   if (!token) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid or insufficient API token.' } }), { status: 401 });
 
-  const rows = await db.select().from(incidents).where(eq(incidents.id, params.id!));
-  const inc = rows[0];
-  if (!inc) return new Response(JSON.stringify({ error: { code: 'not_found', message: 'Incident not found.' } }), { status: 404 });
+  const ownerEnabled = pulpOwnerRouteFamilyConfigured('incidents');
+  let owned: Awaited<ReturnType<typeof ownerIncident>> | null = null;
+  if (ownerEnabled) {
+    try {
+      owned = await ownerIncident(params.id!);
+    } catch (error) {
+      return ownerFailure(error);
+    }
+    if (!owned) return new Response(JSON.stringify({ error: { code: 'not_found', message: 'Incident not found.' } }), { status: 404 });
+  }
 
   const body = await request.json();
   if (body.severity !== undefined && !VALID_SEVERITY.includes(body.severity)) {
@@ -53,6 +85,53 @@ export const PATCH: APIRoute = async ({ request, params }) => {
       }
     }
   }
+
+  if (ownerEnabled && owned) {
+    try {
+      const now = Math.floor(Date.now() / 1_000);
+      if (body.status === 'resolved') {
+        const command = newOwnerCommand('resolve', `${params.id}:${JSON.stringify(body)}`, {
+          at_unix: now,
+          incident: { id: params.id },
+        });
+        // Legacy notification is conditional on a notable incident transition.
+        // Keep that boundary, but make intent creation durable and sequenced by Lua.
+        if (['moderate', 'major'].includes(owned.incident.severity)) {
+          await publishIncidentCommand(command, {
+            eventId: `${params.id}:resolved:${command.id}`,
+            subject: `Resolved: ${owned.incident.title}`,
+            body: body.note || 'Monitoring reports recovery.',
+          });
+        } else {
+          await sendIncidentCommand(command);
+        }
+      }
+      const patch: Record<string, unknown> = { id: params.id, at_unix: now, author: token.name ?? 'api' };
+      if (body.status !== undefined && body.status !== 'resolved') patch.status = body.status;
+      if (body.severity !== undefined) patch.severity = body.severity;
+      if (body.affects !== undefined) patch.affects = body.affects;
+      if (body.title !== undefined) patch.title = body.title;
+      if (body.summary !== undefined) patch.summary = body.summary;
+      if (Object.keys(patch).length > 3) {
+        await sendIncidentCommand(newOwnerCommand('edit', `${params.id}:edit:${JSON.stringify(body)}`, {
+          at_unix: now,
+          incident_patch: patch,
+        }));
+      }
+      const updated = await ownerIncident(params.id!);
+      if (!updated) return ownerFailure(new Error('owner did not return updated incident'));
+      return new Response(JSON.stringify({ data: legacyIncident(updated.incident) }), { headers: { 'Content-Type': 'application/json' } });
+    } catch (error) {
+      return ownerFailure(error);
+    }
+  }
+
+  // The owner branch above is exhaustive whenever its feature flag is set.
+  // Keeping this guard explicit gives the legacy path a non-null DB row.
+  if (ownerEnabled) return ownerFailure(new Error('owner incident lookup was incomplete'));
+  const rows = await db.select().from(incidents).where(eq(incidents.id, params.id!));
+  const inc = rows[0];
+  if (!inc) return new Response(JSON.stringify({ error: { code: 'not_found', message: 'Incident not found.' } }), { status: 404 });
 
   // Resolve must flow through the engine (manual 'ok' observation per affected
   // component), NOT a bare row flip — otherwise the next sweep sees the live
@@ -93,6 +172,19 @@ export const PATCH: APIRoute = async ({ request, params }) => {
 export const DELETE: APIRoute = async ({ request, params }) => {
   const token = await requireApiToken(request, 'full');
   if (!token) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid or insufficient API token.' } }), { status: 401 });
+
+  if (pulpOwnerRouteFamilyConfigured('incidents')) {
+    try {
+      // Legacy DELETE is idempotent: deleting an absent row still returns true.
+      const existing = await ownerIncident(params.id!);
+      if (existing) {
+        await sendIncidentCommand(newOwnerCommand('delete', params.id!, { incident_id: params.id }));
+      }
+      return new Response(JSON.stringify({ data: { deleted: true } }), { headers: { 'Content-Type': 'application/json' } });
+    } catch (error) {
+      return ownerFailure(error);
+    }
+  }
 
   await db.delete(incidents).where(eq(incidents.id, params.id!));
   return new Response(JSON.stringify({ data: { deleted: true } }), { headers: { 'Content-Type': 'application/json' } });
