@@ -65,6 +65,37 @@ export type Level = 'degraded' | 'major';
  */
 export const MANUAL_OK_GRACE_SECONDS = 3600;
 
+/**
+ * Flap suppression — two debounce windows so a momentary blip never becomes a
+ * card and a flapping component coalesces into ONE incident instead of dozens.
+ *
+ * OPEN_DWELL_SECONDS: a non-ok signal must PERSIST this long before the engine
+ *   opens an auto-incident. Applies to every low-confidence signal — a single
+ *   unconfirmed vantage (watch) and any NON-critical component — so a 10-second
+ *   external-dependency blip stays quiet. A CONFIRMED outage of a CRITICAL
+ *   component is exempt: it declares immediately (page fast, debounce never
+ *   delays a real first-party outage).
+ *
+ * RECOVERY_HOLD_SECONDS: once a component reads OK again, hold its auto-incident
+ *   open until it has stayed OK this long. A flapping component (down/up/down/up)
+ *   therefore stays a SINGLE open incident spanning the flappy period and
+ *   resolves once stable — instead of minting a fresh 0-minute "major outage"
+ *   per cycle. Safe by construction: this only delays the "resolved" note, it
+ *   can never hide or shorten a live outage.
+ */
+export const OPEN_DWELL_SECONDS = 180;
+export const RECOVERY_HOLD_SECONDS = 300;
+
+/**
+ * Recovery hold for NON-critical components (external dependencies). A flaky
+ * upstream — Mojang/Microsoft limping for hours, going green for a few minutes
+ * between breaks — should coalesce into ONE incident spanning the bad period,
+ * not mint a fresh "outage" card every time it blips back. Critical first-party
+ * components keep the snappy 5-min hold (RECOVERY_HOLD_SECONDS) so a genuine
+ * recovery is reported promptly; a dependency just isn't worth that churn.
+ */
+export const DEP_RECOVERY_HOLD_SECONDS = 1800;
+
 /** One source's current read on a component. */
 export interface SourceRead {
   sourceId: string;
@@ -329,6 +360,42 @@ async function openIncidentFor(componentId: string) {
 }
 
 /**
+ * Start of the component's CURRENT uninterrupted non-ok monitor streak — the
+ * earliest non-ok observation with no 'ok' observation after it (manual reads
+ * excluded). null when the component has no live non-ok history. Used by the
+ * OPEN_DWELL debounce to measure how long a signal has persisted.
+ */
+async function nonOkStreakStart(componentId: string): Promise<Date | null> {
+  const rows = await db.execute<{ start: Date | null }>(sql`
+    SELECT MIN(o.observed_at) AS start
+    FROM ${observations} o
+    JOIN ${sources} s ON s.id = o.source_id
+    WHERE o.component_id = ${componentId}
+      AND s.kind <> 'manual'
+      AND o.signal <> 'ok'
+      AND o.observed_at > COALESCE(
+        (SELECT MAX(o2.observed_at) FROM ${observations} o2
+           JOIN ${sources} s2 ON s2.id = o2.source_id
+          WHERE o2.component_id = ${componentId} AND s2.kind <> 'manual' AND o2.signal = 'ok'),
+        '-infinity'::timestamptz)
+  `);
+  const v = rows[0]?.start;
+  return v ? new Date(v) : null;
+}
+
+/** Most recent non-ok monitor observation time (manual excluded), or null. Used by RECOVERY_HOLD. */
+async function lastNonOkAt(componentId: string): Promise<Date | null> {
+  const rows = await db.execute<{ last: Date | null }>(sql`
+    SELECT MAX(o.observed_at) AS last
+    FROM ${observations} o
+    JOIN ${sources} s ON s.id = o.source_id
+    WHERE o.component_id = ${componentId} AND s.kind <> 'manual' AND o.signal <> 'ok'
+  `);
+  const v = rows[0]?.last;
+  return v ? new Date(v) : null;
+}
+
+/**
  * Reconcile incidents for a component against its derived quorum state.
  * Engine-owned moves only:
  *   - declared & no open incident          -> open auto-incident (investigating) + templated update
@@ -354,6 +421,23 @@ export async function reconcileIncident(ev: ComponentEvaluation, now = new Date(
     const confStatus = confidenceToStatus(ev.confidence); // votes set status
     const title = `${name} — ${severityHeadline(severity)}`;
     if (!open) {
+      // OPEN_DWELL debounce: only a CORROBORATED outage of a CRITICAL component
+      // (declared AND ≥2 independent monitors agree) opens instantly. Every
+      // lower-confidence signal — a single vantage (watch, or a lone trusted
+      // source on a critical component) and ANY non-critical component (e.g. an
+      // external dependency) — must persist OPEN_DWELL_SECONDS first, so a
+      // momentary blip never mints a card. Criticality still drives SEVERITY
+      // (severityFor) and the partial-outage floor; it just no longer lets one
+      // flappy vantage page instantly. A real sustained outage still opens after
+      // the dwell; the component reflects live status via evaluationToStatus
+      // throughout. This preserves the auth-is-critical tiering AND kills flap.
+      const declareNow = ev.state === 'declared' && critical && ev.confidence >= 2;
+      if (!declareNow) {
+        const streakStart = await nonOkStreakStart(ev.componentId);
+        if (!streakStart || (now.getTime() - streakStart.getTime()) < OPEN_DWELL_SECONDS * 1000) {
+          return; // not sustained yet — stay quiet
+        }
+      }
       const incId = nanoid();
       await db.insert(incidents).values({
         id: incId,
@@ -408,6 +492,16 @@ export async function reconcileIncident(ev: ComponentEvaluation, now = new Date(
     // SAFE: hold the incident open under reduced coverage rather than report
     // "recovered" exactly when we've lost the ability to see.
     if (open && open.auto && ev.hasLiveReads) {
+      // RECOVERY_HOLD: don't resolve until the component has stayed OK for the
+      // hold window. A flapping component coalesces into ONE incident spanning
+      // the flappy period instead of a fresh 0-minute card per up/down cycle.
+      const lastNonOk = await lastNonOkAt(ev.componentId);
+      // Critical components resolve snappily; non-critical deps coalesce lazily
+      // so a flapping upstream stays one incident (see DEP_RECOVERY_HOLD_SECONDS).
+      const holdSeconds = critical ? RECOVERY_HOLD_SECONDS : DEP_RECOVERY_HOLD_SECONDS;
+      if (lastNonOk && (now.getTime() - lastNonOk.getTime()) < holdSeconds * 1000) {
+        return; // still inside the recovery window — hold the incident open
+      }
       await db.update(incidents)
         .set({ status: 'resolved', resolvedAt: now })
         .where(eq(incidents.id, open.id));

@@ -10,10 +10,20 @@ import { asc } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { requireAdmin, ok, err } from '@/lib/admin-api';
 import { componentExists, isLeafComponent } from '@/lib/components';
+import { pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
+import {
+  ownerCommandID,
+  ownerMaintenanceRows,
+  ownerNowUnix,
+  sendOwnerMaintenanceCommand,
+  toUnixSeconds,
+  validateOwnerAffects,
+} from '../../maintenance/owner';
 
 export const GET: APIRoute = async (ctx) => {
   const who = await requireAdmin(ctx);
   if (who instanceof Response) return who;
+  if (pulpOwnerRouteFamilyConfigured('maintenance')) return ok(await ownerMaintenanceRows());
   const rows = await db.select().from(maintenance).orderBy(asc(maintenance.scheduledStart));
   return ok(rows);
 };
@@ -32,6 +42,22 @@ export const POST: APIRoute = async (ctx) => {
   }
   if (endMs <= startMs) {
     return err('bad_request', 'scheduledEnd must be after scheduledStart.', 400);
+  }
+  if (pulpOwnerRouteFamilyConfigured('maintenance')) {
+    const validation = await validateOwnerAffects(b.affects, (id) => `Component "${id}" is not a leaf (schedule on a service or host).`);
+    if (validation) return err('bad_request', validation, 400);
+    const id = nanoid();
+    const now = ownerNowUnix();
+    await sendOwnerMaintenanceCommand({
+      version: 'monitor.v1', id: ownerCommandID('maintenance-admin-create', id), kind: 'schedule_maintenance', at_unix: now,
+      maintenance: {
+        id, title: b.title, summary: b.summary, kind: b.kind ?? 'scheduled',
+        scheduled_start_unix: toUnixSeconds(new Date(b.scheduledStart)),
+        scheduled_end_unix: toUnixSeconds(new Date(b.scheduledEnd)),
+        affects: b.affects, created_at_unix: now,
+      },
+    });
+    return ok({ id }, 201);
   }
   // Every affected id must resolve to a real LEAF component, or the window
   // renders on no page (the invisible-maintenance bug).

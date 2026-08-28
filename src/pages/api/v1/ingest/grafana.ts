@@ -47,6 +47,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { getOrCreateAdapterSource, resolveTarget } from '@/lib/sources';
 import { appendObservation, type Signal } from '@/lib/quorum';
 import { snapshotComponent, notifyForComponent } from '@/lib/notify';
+import { callPulpEvent, PULP_EVENTS, PulpBridgeError, pulpOwnerRequestID, pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
 
 const DEGRADED_SEVERITIES = new Set(['warning', 'warn', 'minor', 'info', 'low']);
 
@@ -81,8 +82,13 @@ function json(body: unknown, status: number) {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 }
 
+type OwnerProjection = { sources: Array<{ id: string; name: string; kind: string; revoked?: boolean; default_ttl_seconds?: number | null }>; mappings: Array<{ source_id: string; raw_label: string; component_id: string }>; components: Array<{ component: { id: string; archived?: boolean } }> };
+async function ownerProjection(): Promise<OwnerProjection> { return callPulpEvent(PULP_EVENTS.monitorQuery, { version: 'monitor.v1', include_archived: true, at_unix: Math.floor(Date.now() / 1000) }); }
+function ownerFailure(error: unknown) { const status = error instanceof PulpBridgeError && error.status < 500 ? error.status : 503; return json({ error: { code: 'owner_unavailable', message: 'Grafana owner is unavailable.' } }, status); }
+async function ownerIngest(sourceId: string, raw: string, signal: Signal, detail: string, observedAt: Date, ttl: number) { const observedAtUnix = Math.floor(observedAt.getTime() / 1000); const eventKey = `${sourceId}\0${raw}\0${signal}\0${observedAtUnix}`; return callPulpEvent('bananapulse.monitor.ingest.authenticated.v1', { version: 'monitor.v1', id: pulpOwnerRequestID('grafana-ingest', eventKey), kind: 'ingest_observation', at_unix: Math.floor(Date.now() / 1000), ingest: { observation_id: pulpOwnerRequestID('observation', eventKey), source_id: sourceId, raw_label: raw, signal, detail, observed_at_unix: observedAtUnix, expires_at_unix: observedAtUnix + ttl } }); }
+
 function secretMatches(provided: string, secret: string): boolean {
-  if (provided.length !== secret.length) return false;
+  if (!provided || provided.length !== secret.length) return false;
   return timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
 }
 
@@ -132,7 +138,15 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ error: { code: 'bad_request', message: 'Expected a non-empty `alerts[]` array.' } }, 400);
   }
 
-  const source = await getOrCreateAdapterSource('Grafana Cloud', 'probe');
+  const useOwner = pulpOwnerRouteFamilyConfigured('ingest');
+  let projection: OwnerProjection | null = null;
+  let ownerSource: OwnerProjection['sources'][number] | undefined;
+  if (useOwner) {
+    try { projection = await ownerProjection(); ownerSource = projection.sources.find((source) => source.name === 'Grafana Cloud' && source.kind === 'probe' && !source.revoked); }
+    catch (error) { return ownerFailure(error); }
+    if (!ownerSource) return json({ error: { code: 'owner_unavailable', message: 'Grafana owner source is not migrated.' } }, 503);
+  }
+  const source = useOwner ? null : await getOrCreateAdapterSource('Grafana Cloud', 'probe');
 
   const results: Array<{ target: string; signal: Signal; mapped: boolean }> = [];
   let accepted = 0;
@@ -149,7 +163,8 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     const signal = alertToSignal(status, labels.severity);
-    const componentId = await resolveTarget(source.id, raw);
+    const ownerMapping = projection?.mappings.find((mapping) => mapping.source_id === ownerSource?.id && mapping.raw_label === raw);
+    const componentId = useOwner ? ownerMapping?.component_id ?? null : await resolveTarget(source!.id, raw);
     if (!componentId) {
       // No mapping row for this raw label: record as unmapped (skip), so the
       // adapter is loud-but-not-fatal, matching the core's 422 semantics.
@@ -161,16 +176,23 @@ export const POST: APIRoute = async ({ request }) => {
     // Use the alert's own event time as the observed instant (not our processing
     // time) so a delayed/retried webhook orders correctly and dedups.
     const observedAt = grafanaObservedAt(alert);
+    if (useOwner) {
+      const component = projection!.components.find((entry) => entry.component.id === componentId)?.component;
+      if (!component || component.archived) { results.push({ target: raw, signal, mapped: false }); continue; }
+      try { await ownerIngest(ownerSource!.id, raw, signal, detail, observedAt ?? new Date(), ownerSource!.default_ttl_seconds || GRAFANA_OBS_TTL_SECONDS); }
+      catch (error) { return ownerFailure(error); }
+      accepted++; results.push({ target: raw, signal, mapped: true }); continue;
+    }
 
     // Snapshot before the engine runs so we can narrate the exact transition.
     const before = await snapshotComponent(componentId);
     await appendObservation({
-      sourceId: source.id,
+      sourceId: source!.id,
       componentId,
       signal,
       detail,
       observedAt,
-      defaultTtlSeconds: source.defaultTtl ?? GRAFANA_OBS_TTL_SECONDS, // dead-man: stale if Grafana goes silent
+      defaultTtlSeconds: source!.defaultTtl ?? GRAFANA_OBS_TTL_SECONDS, // dead-man: stale if Grafana goes silent
     });
     await notifyForComponent(componentId, before);
 

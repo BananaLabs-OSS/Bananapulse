@@ -11,6 +11,9 @@ import { eq, ne, desc, asc, gte } from 'drizzle-orm';
 import { getResource } from '@/lib/admin/resources';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
 import { fmtDateTime } from '@/lib/admin/view';
+import { pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
+import { incidentProjection, legacyIncident } from '@/pages/api/v1/incidents/owner';
+import { ownerMaintenanceRows } from '@/pages/api/v1/maintenance/owner';
 
 const resource = getResource('incidents')!;
 const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
@@ -19,7 +22,15 @@ const tab = Astro.url.searchParams.get('tab') ?? 'active';
 
 let rows: Record<string, any>[] = [];
 let isMaintenance = false;
-if (tab === 'resolved') {
+const ownerMode = pulpOwnerRouteFamilyConfigured('incidents');
+if (ownerMode && tab === 'resolved') {
+  rows = (await incidentProjection()).incidents?.filter((incident) => incident.status === 'resolved').map(legacyIncident) ?? [];
+} else if (ownerMode && tab === 'scheduled') {
+  isMaintenance = true;
+  rows = (await ownerMaintenanceRows()).filter((row) => new Date(row.scheduledEnd) >= new Date());
+} else if (ownerMode) {
+  rows = (await incidentProjection()).incidents?.filter((incident) => incident.status !== 'resolved').map(legacyIncident) ?? [];
+} else if (tab === 'resolved') {
   rows = await db.select().from(incidents).where(eq(incidents.status, 'resolved')).orderBy(desc(incidents.startedAt)).limit(100);
 } else if (tab === 'scheduled') {
   isMaintenance = true;

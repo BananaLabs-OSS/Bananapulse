@@ -10,21 +10,32 @@ import IncidentDetail from '../../components/skin/IncidentDetail.astro';
 import NotFound from '../../components/skin/NotFound.astro';
 import { getIncident } from '../../lib/db-incidents';
 import { componentCrumbs } from '../../lib/components';
+import { getMonitorProjection, pulpMonitorProjectionConfigured } from '../../lib/pulp-bridge';
+import { buildPulpComponentCrumbs, buildPulpIncident } from '../../lib/pulp-monitor-projection';
 import type { CrumbItem } from '../../lib/view';
 import type { Incident } from '../../lib/types';
 
 const { id } = Astro.params;
 const scope = (Astro.locals as any).scope as string | null;
+const ownerSelected = pulpMonitorProjectionConfigured();
 
 let incident: Incident | undefined;
 let crumbs: CrumbItem[] = [];
 let affectedPath: string[] = [];
+let unavailable = false;
 try {
-  incident = id ? await getIncident(id) : undefined;
+  const projection = ownerSelected ? await getMonitorProjection() : undefined;
+  incident = id
+    ? projection
+      ? buildPulpIncident(projection, id)
+      : await getIncident(id)
+    : undefined;
   if (incident) {
     const leaf = (incident.affects ?? [])[0];
     if (leaf) {
-      const ctx = await componentCrumbs(scope, leaf);
+      const ctx = projection
+        ? buildPulpComponentCrumbs(projection, scope, leaf)
+        : await componentCrumbs(scope, leaf);
       crumbs = ctx.crumbs;
       affectedPath = ctx.affectedPath;
     }
@@ -32,18 +43,24 @@ try {
     if (affectedPath.length === 0) affectedPath = [incident.title];
   }
 } catch (_e) {
-  // DB unreachable
+  unavailable = ownerSelected;
+  // Owner mode stays fail-closed; legacy mode preserves its existing 404 behavior.
 }
 
-if (!incident) Astro.response.status = 404;
+if (!incident) Astro.response.status = unavailable ? 503 : 404;
 ---
-<Skin scope={scope} title={incident ? incident.title : 'Not found'}>
+<Skin scope={scope} title={incident ? incident.title : unavailable ? 'Status unavailable' : 'Not found'}>
   {incident ? (
     <>
       <SkinCrumbs crumbs={crumbs} />
       <IncidentDetail incident={incident} affectedPath={affectedPath} />
     </>
   ) : (
-    <NotFound title="Incident not found" message="That incident doesn't exist or was removed." />
+    <NotFound
+      title={unavailable ? 'Status unavailable' : 'Incident not found'}
+      message={unavailable
+        ? 'Incident details are temporarily unavailable. Please try again shortly.'
+        : "That incident doesn't exist or was removed."}
+    />
   )}
 </Skin>

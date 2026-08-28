@@ -11,9 +11,39 @@
  * the same UPTIME_HOOK_SECRET shared secret to keep it internal.
  */
 import type { APIRoute } from 'astro';
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { sweepQuorum } from '@/lib/quorum';
 import { snapshotAllOpenIncidents, notifyForComponent } from '@/lib/notify';
+import { callPulpEvent, PulpBridgeError, pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
+
+const MONITOR_SWEEP_EVENT = 'bananapulse.monitor.sweep.v1';
+
+interface OwnerSweepResult {
+  sweep?: {
+    components: number;
+    declared: number;
+    watch: number;
+    reduced_coverage: number;
+  };
+}
+
+function json(body: unknown, status: number) {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+function ownerFailure(error: unknown): Response {
+  // Never call sweepQuorum after an owner attempt: replaying the same timer in
+  // the legacy writer could create a divergent incident/notification history.
+  if (error instanceof PulpBridgeError && error.detail) {
+    try {
+      return json(JSON.parse(error.detail), error.status);
+    } catch {
+      // Public routes deliberately do not expose raw bridge diagnostics.
+    }
+  }
+  const status = error instanceof PulpBridgeError && error.status < 500 ? error.status : 503;
+  return json({ error: { code: 'owner_unavailable', message: 'Sweep owner is unavailable.' } }, status);
+}
 
 export const POST: APIRoute = async ({ request }) => {
   const secret = process.env.UPTIME_HOOK_SECRET;
@@ -23,6 +53,38 @@ export const POST: APIRoute = async ({ request }) => {
   const provided = request.headers.get('X-Uptime-Hook-Secret') ?? '';
   if (provided.length !== secret.length || !timingSafeEqual(Buffer.from(provided), Buffer.from(secret))) {
     return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid secret.' } }), { status: 401 });
+  }
+
+  if (pulpOwnerRouteFamilyConfigured('sweep')) {
+    try {
+      // The Lua event commits monitor reconciliation then applies subscriber
+      // transition delivery intents. A fresh command ID preserves the legacy
+      // scheduler semantics: two separately received ticks are two sweeps.
+      const result = await callPulpEvent<{
+        version: string;
+        id: string;
+        kind: string;
+        at_unix: number;
+      }, OwnerSweepResult>(MONITOR_SWEEP_EVENT, {
+        version: 'monitor.v1',
+        id: `sweep_${randomUUID()}`,
+        kind: 'sweep_reconcile',
+        at_unix: Math.floor(Date.now() / 1000),
+      });
+      if (!result.sweep) {
+        return json({ error: { code: 'owner_unavailable', message: 'Sweep owner returned an invalid response.' } }, 503);
+      }
+      return json({
+        data: {
+          components: result.sweep.components,
+          declared: result.sweep.declared,
+          watch: result.sweep.watch,
+          reducedCoverage: result.sweep.reduced_coverage,
+        },
+      }, 200);
+    } catch (error) {
+      return ownerFailure(error);
+    }
   }
 
   try {

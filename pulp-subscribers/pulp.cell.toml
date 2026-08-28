@@ -1,0 +1,37 @@
+name = "subscription-outbox"
+version = "1.0.0"
+wasm = "subscription-outbox.wasm"
+wasm_sha256 = "584258fe1d993f94d5be18230e2c92f46239b974a6b7f4b44854be8b0935c108"
+
+# This owner persists subscription state and publishes email-delivery intents.
+# It never sends email itself: the composed host claims intents and returns
+# durable receipts through the receipt provider below.
+provides = [
+  "subscription-outbox.v1.catalog",
+  "subscription-outbox.v1.subscribe",
+  "subscription-outbox.v1.confirm",
+  "subscription-outbox.v1.unsubscribe",
+  "subscription-outbox.v1.notify.incident",
+  "subscription-outbox.v1.notify.maintenance",
+  "subscription-outbox.v1.projection",
+  "subscription-outbox.v1.confirmation.resend",
+  "subscription-outbox.v1.admin.list",
+  "subscription-outbox.v1.admin.get",
+  "subscription-outbox.v1.admin.delete",
+  "subscription-outbox.v1.admin.state.set",
+  "subscription-outbox.v1.migration.import",
+  "subscription-outbox.v1.delivery.config.set",
+  "subscription-outbox.v1.transition.apply",
+  "subscription-outbox.v1.outbox.claim",
+  "subscription-outbox.v1.outbox.receipt.apply",
+]
+consumes = []
+capabilities = ["storage.sqlite"]
+
+[execution]
+mode = "fusible"
+group = "application-state-core"
+abi = "pulp-linear-v1"
+
+[config]
+storage_namespace = "subscription-outbox/v1"

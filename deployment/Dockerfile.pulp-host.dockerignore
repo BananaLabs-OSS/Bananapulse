@@ -1,0 +1,6 @@
+**
+!pulp-host/**
+!application/**
+!pulp-monitor/**
+!pulp-subscribers/**
+!pulp-auth/**

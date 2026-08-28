@@ -4,8 +4,9 @@
  * from types.ts so existing components work unchanged.
  */
 import { db } from '@/db';
-import { incidents, incidentTimeline, components } from '@/db/schema';
-import { eq, ne, desc, isNull } from 'drizzle-orm';
+import { incidents, incidentTimeline } from '@/db/schema';
+import { eq, ne, desc } from 'drizzle-orm';
+import { loadComponentTree } from './db-components';
 import type { Incident, TimelineEntry, IncidentSeverity, IncidentStatus } from './types';
 import { UMBRELLA_ID } from '@/pulse.config';
 
@@ -24,17 +25,6 @@ function mapDbIncident(row: typeof incidents.$inferSelect, timeline: TimelineEnt
     resolved: row.resolvedAt?.toISOString(),
     timeline,
   };
-}
-
-/**
- * Load the (active) component tree once as a parent lookup. Shared by the
- * product-scoping helpers below so incidents derive their product/brand from
- * the SAME components tree the public surface renders (no parallel model).
- */
-async function loadComponentTree() {
-  const rows = await db.select({ id: components.id, parentId: components.parentId, kind: components.kind })
-    .from(components).where(isNull(components.archivedAt));
-  return new Map(rows.map((r) => [r.id, r]));
 }
 
 /** Walk a component up to its nearest product/organization ancestor id. */
@@ -118,6 +108,7 @@ export async function getResolvedIncidents(opts?: {
   service?: string;
   limit?: number;
   offset?: number;
+  noTimeline?: boolean; // history LISTS don't need per-incident timelines — skip the N extra queries
 }): Promise<Incident[]> {
   const rows = await db.select().from(incidents)
     .where(eq(incidents.status, 'resolved'))
@@ -137,8 +128,8 @@ export async function getResolvedIncidents(opts?: {
   const paged = filtered.slice(offset, offset + limit);
 
   return Promise.all(paged.map(async (row) => {
-    const tl = await buildTimeline(row.id);
-    const prod = opts?.product ?? await resolveProduct(row.affects);
+    const tl = opts?.noTimeline ? [] : await buildTimeline(row.id);
+    const prod = opts?.product ?? (opts?.noTimeline ? '' : await resolveProduct(row.affects));
     return mapDbIncident(row, tl, prod);
   }));
 }

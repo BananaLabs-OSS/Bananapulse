@@ -9,6 +9,8 @@
 import type { APIRoute } from 'astro';
 import { buildSummaryTree } from '../../../lib/components';
 import { statusToState } from '../../../lib/types';
+import { getMonitorProjection, pulpMonitorProjectionConfigured } from '../../../lib/pulp-bridge';
+import { buildPulpSummaryTree } from '../../../lib/pulp-monitor-projection';
 
 const headers = {
   'Content-Type': 'application/json',
@@ -47,7 +49,9 @@ export const GET: APIRoute = async ({ locals, url }) => {
   const qScope = url.searchParams.get('scope');
   const scope = qScope || ((locals as any).scope as string | null) || null;
   try {
-    const root = await buildSummaryTree(scope);
+    const root = pulpMonitorProjectionConfigured()
+      ? buildPulpSummaryTree(await getMonitorProjection(), scope)
+      : await buildSummaryTree(scope);
     // A null root (scope's landing-root missing/archived/wrong-scope/partial
     // seed) is a data-integrity failure, not an "all clear" — fail CLOSED past
     // the catch so we never emit 'operational'+live:true for a vanished tree.

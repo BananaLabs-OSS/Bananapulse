@@ -10,11 +10,15 @@ import { asc } from 'drizzle-orm';
 import { getResource } from '@/lib/admin/resources';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
 import { fmtDateTime } from '@/lib/admin/view';
+import { pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
+import { ownerMaintenanceRows } from '@/pages/api/v1/maintenance/owner';
 
 const resource = getResource('maintenance')!;
 const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
 const property = Astro.url.searchParams.get('property') ?? 'all';
-const rows = await db.select().from(maintenance).orderBy(asc(maintenance.scheduledStart));
+const rows = pulpOwnerRouteFamilyConfigured('maintenance')
+  ? await ownerMaintenanceRows()
+  : await db.select().from(maintenance).orderBy(asc(maintenance.scheduledStart));
 const counts = await navCounts();
 const properties = await propertyOptions();
 ---

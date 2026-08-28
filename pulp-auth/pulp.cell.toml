@@ -1,0 +1,39 @@
+name = "credential-registry"
+version = "1.0.0"
+wasm = "credential-registry.wasm"
+wasm_sha256 = "ab26af7d796d2a48747dfd69d060b71aa855d4621f3c23773426fdfca0181237"
+
+# This owner persists admin identity, challenge, session, machine API-token,
+# and monitor-source credential state. It never sends email, parses HTTP or
+# cookies, or receives SQLite internals from Lua. Private host paths call its
+# credential providers directly and pass only asserted principals downstream.
+provides = [
+  "credential-registry.v1.catalog",
+  "credential-registry.v1.admin.identity.import",
+  "credential-registry.v1.magic-link.issue",
+  "credential-registry.v1.magic-link.consume",
+  "credential-registry.v1.session.create",
+  "credential-registry.v1.session.validate",
+  "credential-registry.v1.session.revoke",
+  "credential-registry.v1.api-token.issue",
+  "credential-registry.v1.api-token.validate",
+  "credential-registry.v1.admin.api-token.import",
+  "credential-registry.v1.admin.api-token.list",
+  "credential-registry.v1.admin.api-token.revoke",
+  "credential-registry.v1.admin.source-credential.import",
+  "credential-registry.v1.admin.source-credential.rotate",
+  "credential-registry.v1.admin.source-credential.revoke",
+  "credential-registry.v1.source-credential.validate",
+  "credential-registry.v1.projection",
+  "credential-registry.v1.admin.audit.query",
+]
+consumes = []
+capabilities = ["storage.sqlite"]
+
+[execution]
+mode = "fusible"
+group = "application-state-core"
+abi = "pulp-linear-v1"
+
+[config]
+storage_namespace = "credential-registry/v1"

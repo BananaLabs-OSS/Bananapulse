@@ -1,32 +1,45 @@
 import type { APIRoute } from 'astro';
 import { db } from '@/db';
 import { incidents, incidentTimeline } from '@/db/schema';
-import { validateApiToken } from '@/lib/api-tokens';
+import { requireApiToken } from '@/lib/api-tokens';
 import { componentExists, isLeafComponent } from '@/lib/components';
 import { eq, desc, and, arrayContains } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
+import { pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
+import {
+  incidentProjection,
+  legacyIncident,
+  newOwnerCommand,
+  ownerFailure,
+  sendIncidentCommand,
+} from './owner';
 
 const VALID_SEVERITY = ['minor', 'moderate', 'major'];
 const VALID_STATUS = ['investigating', 'identified', 'monitoring', 'resolved'];
 
-async function authenticate(request: Request, requiredScope: 'read' | 'write' | 'full') {
-  const auth = request.headers.get('Authorization');
-  if (!auth?.startsWith('Bearer ')) return null;
-  const token = await validateApiToken(auth.slice(7));
-  if (!token) return null;
-  const scopeRank: Record<string, number> = { read: 1, write: 2, full: 3 };
-  if ((scopeRank[token.scope] ?? 0) < (scopeRank[requiredScope] ?? 3)) return null;
-  return token;
-}
-
 export const GET: APIRoute = async ({ request, url }) => {
-  const token = await authenticate(request, 'read');
+  const token = await requireApiToken(request, 'read');
   if (!token) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid or insufficient API token.' } }), { status: 401 });
 
   const status = url.searchParams.get('status');
   const product = url.searchParams.get('product');
   const limit = parseInt(url.searchParams.get('limit') ?? '50');
   const offset = parseInt(url.searchParams.get('offset') ?? '0');
+
+  if (pulpOwnerRouteFamilyConfigured('incidents')) {
+    try {
+      const projection = await incidentProjection();
+      let rows = (projection.incidents ?? []).map(legacyIncident);
+      if (status) rows = rows.filter((incident) => incident.status === status);
+      if (product) rows = rows.filter((incident) => incident.affects.includes(product));
+      rows.sort((left, right) => Date.parse(right.startedAt ?? '') - Date.parse(left.startedAt ?? ''));
+      return new Response(JSON.stringify({ data: rows.slice(offset, offset + limit) }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    } catch (error) {
+      return ownerFailure(error);
+    }
+  }
 
   const conditions = [];
   if (status) conditions.push(eq(incidents.status, status));
@@ -41,7 +54,7 @@ export const GET: APIRoute = async ({ request, url }) => {
 };
 
 export const POST: APIRoute = async ({ request }) => {
-  const token = await authenticate(request, 'write');
+  const token = await requireApiToken(request, 'write');
   if (!token) return new Response(JSON.stringify({ error: { code: 'unauthorized', message: 'Invalid or insufficient API token.' } }), { status: 401 });
 
   const body = await request.json();
@@ -66,6 +79,35 @@ export const POST: APIRoute = async ({ request }) => {
     }
   }
 
+  if (pulpOwnerRouteFamilyConfigured('incidents')) {
+    const id = nanoid();
+    const now = Math.floor(Date.now() / 1_000);
+    const command = newOwnerCommand('open', id, {
+      at_unix: now,
+      incident: {
+        id,
+        title,
+        summary,
+        severity,
+        affects,
+        status: incStatus ?? 'investigating',
+        auto: false,
+        started_at_unix: now,
+        created_at_unix: now,
+      },
+    });
+    // The old public API creates the row only; it deliberately does not page
+    // subscribers. Keep that behavioral boundary while moving its state owner.
+    try {
+      await sendIncidentCommand(command);
+      const created = await ownerIncidentForResponse(id);
+      if (!created) return ownerFailure(new Error('owner did not return created incident'));
+      return new Response(JSON.stringify({ data: created }), { status: 201, headers: { 'Content-Type': 'application/json' } });
+    } catch (error) {
+      return ownerFailure(error);
+    }
+  }
+
   const id = nanoid();
   await db.insert(incidents).values({
     id, title, summary, severity, affects,
@@ -87,3 +129,9 @@ export const POST: APIRoute = async ({ request }) => {
   const created = await db.select().from(incidents).where(eq(incidents.id, id));
   return new Response(JSON.stringify({ data: created[0] }), { status: 201, headers: { 'Content-Type': 'application/json' } });
 };
+
+async function ownerIncidentForResponse(id: string) {
+  const projection = await incidentProjection();
+  const incident = projection.incidents?.find((candidate) => candidate.id === id);
+  return incident ? legacyIncident(incident) : null;
+}

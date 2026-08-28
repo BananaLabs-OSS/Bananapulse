@@ -1,5 +1,10 @@
 import type { APIRoute } from 'astro';
 import { confirmSubscriber } from '@/lib/subscribers';
+import {
+  confirmWithOwner,
+  pulpSubscriberLifecycleConfigured,
+  subscriberTokenRequestID,
+} from '@/lib/pulp-bridge';
 
 /**
  * GET /api/subscribe/confirm?token=<subscriber-id>
@@ -16,7 +21,17 @@ export const GET: APIRoute = async ({ url }) => {
     );
   }
 
-  const ok = await confirmSubscriber(token);
+  let ok = false;
+  if (pulpSubscriberLifecycleConfigured()) {
+    try {
+      const result = await confirmWithOwner(subscriberTokenRequestID('confirm', token), token);
+      ok = result.confirmed === true;
+    } catch {
+      ok = false;
+    }
+  } else {
+    ok = await confirmSubscriber(token);
+  }
 
   if (!ok) {
     return new Response(

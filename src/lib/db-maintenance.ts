@@ -3,8 +3,9 @@
  * Returns data mapped to the Maintenance interface from types.ts.
  */
 import { db } from '@/db';
-import { maintenance, components } from '@/db/schema';
-import { gte, asc, isNull } from 'drizzle-orm';
+import { maintenance } from '@/db/schema';
+import { gte, asc } from 'drizzle-orm';
+import { loadComponentTree } from './db-components';
 import type { Maintenance } from './types';
 import { UMBRELLA_ID } from '@/pulse.config';
 
@@ -17,13 +18,6 @@ function mapDbMaintenance(row: typeof maintenance.$inferSelect, product: string)
     scheduledEnd: row.scheduledEnd.toISOString(),
     body: row.summary,
   };
-}
-
-/** Load the active component tree once as a parent lookup (same model as the public surface). */
-async function loadComponentTree() {
-  const rows = await db.select({ id: components.id, parentId: components.parentId, kind: components.kind })
-    .from(components).where(isNull(components.archivedAt));
-  return new Map(rows.map((r) => [r.id, r]));
 }
 
 /** Resolve the product for a maintenance window by walking the first affected component up the tree. */

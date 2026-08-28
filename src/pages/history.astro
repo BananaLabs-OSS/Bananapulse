@@ -6,6 +6,8 @@
 import Skin from '../layouts/Skin.astro';
 import SkinCrumbs from '../components/skin/SkinCrumbs.astro';
 import { getAllIncidents, countAllIncidents } from '../lib/db-incidents';
+import { getMonitorProjection, pulpMonitorProjectionConfigured } from '../lib/pulp-bridge';
+import { buildPulpIncidentHistory } from '../lib/pulp-monitor-projection';
 import { severityColor, severityLabel } from '../lib/skin-copy';
 import { incidentStatusLabel, formatDate } from '../lib/types';
 import { brandForScope } from '../lib/skin';
@@ -15,15 +17,32 @@ const scope = (Astro.locals as any).scope as string | null;
 const PAGE_SIZE = 15;
 const currentPage = Math.max(1, parseInt(Astro.url.searchParams.get('page') || '1', 10) || 1);
 const offset = (currentPage - 1) * PAGE_SIZE;
+const ownerSelected = pulpMonitorProjectionConfigured();
 
 let incidents: Incident[] = [];
 let totalPages = 1;
+let unavailable = false;
 try {
-  const total = await countAllIncidents({ product: scope || undefined });
-  totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  incidents = await getAllIncidents({ product: scope || undefined, limit: PAGE_SIZE, offset });
+  if (ownerSelected) {
+    const page = buildPulpIncidentHistory(
+      await getMonitorProjection(),
+      scope,
+      PAGE_SIZE,
+      offset,
+    );
+    totalPages = Math.max(1, Math.ceil(page.total / PAGE_SIZE));
+    incidents = page.incidents;
+  } else {
+    const total = await countAllIncidents({ product: scope || undefined });
+    totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    incidents = await getAllIncidents({ product: scope || undefined, limit: PAGE_SIZE, offset });
+  }
 } catch (_e) {
-  // DB unreachable
+  if (ownerSelected) {
+    unavailable = true;
+    Astro.response.status = 503;
+  }
+  // Legacy mode preserves its existing empty-history behavior.
 }
 
 const crumbs = [{ label: brandForScope(scope).wordmark, href: '/' }, { label: 'History' }];
@@ -64,6 +83,10 @@ const crumbs = [{ label: brandForScope(scope).wordmark, href: '/' }, { label: 'H
       )}
     </>
   ) : (
-    <p class="mono" style="color:var(--muted);margin-top:24px;font-size:13px">No incidents reported yet.</p>
+    <p class="mono" style="color:var(--muted);margin-top:24px;font-size:13px">
+      {unavailable
+        ? 'Incident history is temporarily unavailable. Please try again shortly.'
+        : 'No incidents reported yet.'}
+    </p>
   )}
 </Skin>

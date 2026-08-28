@@ -10,6 +10,7 @@ import { componentExists } from '@/lib/components';
 import { getResource, COMPONENT_KIND_OPTIONS } from '@/lib/admin/resources';
 import { componentParentOptions } from '@/lib/admin/view';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
+import { monitorAdminCommand, monitorAdminOwnerConfigured, monitorOwnerProjection, ownerRequestID } from '@/pages/api/v1/admin/components/pulp-owner';
 
 const KINDS = COMPONENT_KIND_OPTIONS.map((o) => o.value);
 const resource = getResource('components')!;
@@ -28,12 +29,23 @@ if (Astro.request.method === 'POST') {
     error = 'ID must be lowercase letters, numbers and dashes only.';
   } else if (!KINDS.includes(kind)) {
     error = `Kind must be one of: ${KINDS.join(', ')}.`;
-  } else if (await getComponentRow(id)) {
+  } else if (monitorAdminOwnerConfigured() && (await monitorOwnerProjection(true)).components.some(({ component }) => component.id === id)) {
     error = `A component with id "${id}" already exists.`;
-  } else if (parentId && !(await componentExists(parentId))) {
+  } else if (!monitorAdminOwnerConfigured() && await getComponentRow(id)) {
+    error = `A component with id "${id}" already exists.`;
+  } else if (parentId && monitorAdminOwnerConfigured() && !(await monitorOwnerProjection(false)).components.some(({ component }) => component.id === parentId)) {
+    error = `Unknown parent component "${parentId}".`;
+  } else if (parentId && !monitorAdminOwnerConfigured() && !(await componentExists(parentId))) {
     error = `Unknown parent component "${parentId}".`;
   } else {
-    await createComponentRow({
+    if (monitorAdminOwnerConfigured()) await monitorAdminCommand({
+      id: ownerRequestID('admin-component-create', Astro.request, id), kind: 'upsert_component', component: {
+        id, name, kind, parent_id: parentId || '', tag: form.get('tag')?.toString() || '',
+        brand: form.get('brand')?.toString() || '', domain: form.get('domain')?.toString() || '',
+        sort_order: parseInt(form.get('sortOrder')?.toString() ?? '0') || 0,
+        fallback_status: 'operational', critical: false, launched: true, launched_set: true, archived: false,
+      },
+    }); else await createComponentRow({
       id, name, kind,
       parentId,
       tag: form.get('tag')?.toString() || null,

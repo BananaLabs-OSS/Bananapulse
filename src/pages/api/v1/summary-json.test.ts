@@ -7,8 +7,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // 503, never 'operational'+live:true.
 
 vi.mock('../../../lib/components', () => ({ buildSummaryTree: vi.fn() }));
+vi.mock('../../../lib/pulp-bridge', () => ({
+  pulpMonitorProjectionConfigured: vi.fn(() => false),
+  getMonitorProjection: vi.fn(),
+}));
+vi.mock('../../../lib/pulp-monitor-projection', () => ({ buildPulpSummaryTree: vi.fn() }));
 
 import { buildSummaryTree } from '../../../lib/components';
+import { getMonitorProjection, pulpMonitorProjectionConfigured } from '../../../lib/pulp-bridge';
+import { buildPulpSummaryTree } from '../../../lib/pulp-monitor-projection';
 import { GET } from './summary.json';
 
 const mockTree = vi.mocked(buildSummaryTree);
@@ -18,7 +25,10 @@ function ctx(scope: string | null = null) {
   return { locals: { scope }, url } as any;
 }
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(pulpMonitorProjectionConfigured).mockReturnValue(false);
+});
 
 describe('GET /api/v1/summary.json fail-closed (audit H1 regression)', () => {
   it('success path: 200 + live:true + the derived tree status', async () => {
@@ -59,5 +69,23 @@ describe('GET /api/v1/summary.json fail-closed (audit H1 regression)', () => {
     expect(res.status).toBe(200);
     expect(body.status).toBe('outage');
     expect(body.live).toBe(true);
+  });
+
+  it('uses the composed owner projection when the Pulp bridge is configured', async () => {
+    vi.mocked(pulpMonitorProjectionConfigured).mockReturnValue(true);
+    vi.mocked(getMonitorProjection).mockResolvedValue({ version: 'monitor.v1' } as any);
+    vi.mocked(buildPulpSummaryTree).mockReturnValue({
+      id: 'root',
+      name: 'Root',
+      kind: 'organization',
+      status: 'degraded',
+      issueCount: 1,
+      incidents: [],
+      children: [],
+    });
+    const res = await GET(ctx());
+    expect(res.status).toBe(200);
+    expect((await res.json()).status).toBe('degraded');
+    expect(buildSummaryTree).not.toHaveBeenCalled();
   });
 });

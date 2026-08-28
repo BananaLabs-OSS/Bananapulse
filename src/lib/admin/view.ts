@@ -9,6 +9,7 @@ import { db } from '@/db';
 import { observations, sourceTargetMap } from '@/db/schema';
 import { sql } from 'drizzle-orm';
 import { evaluateComponent, type ComponentEvaluation } from '@/lib/quorum';
+import { monitorAdminOwnerConfigured, monitorOwnerProjection } from '@/pages/api/v1/admin/components/pulp-owner';
 
 const PILL_COLOR: Record<string, string> = {
   operational: 'var(--ok)', ok: 'var(--ok)', resolved: 'var(--ok)',
@@ -58,6 +59,12 @@ export function fmtDateTime(d: Date | string | null | undefined): string {
  * UP the tree; their status is derived (worst-of-subtree) and bubbles up.
  */
 export async function componentOptions(): Promise<FieldOption[]> {
+  if (monitorAdminOwnerConfigured()) {
+    const projection = await monitorOwnerProjection(false);
+    return projection.components.map(({ component }) => component)
+      .filter((c) => !c.archived && (c.kind === 'service' || c.kind === 'host'))
+      .map((c) => ({ value: c.id, label: `${c.name} Â· ${c.kind}` }));
+  }
   const comps = await getComponentsAdmin({ archived: false });
   return comps
     .filter((c) => c.kind === 'service' || c.kind === 'host')
@@ -66,6 +73,13 @@ export async function componentOptions(): Promise<FieldOption[]> {
 
 /** Parent options for the component tree — any node, plus a top-level option. */
 export async function componentParentOptions(): Promise<FieldOption[]> {
+  if (monitorAdminOwnerConfigured()) {
+    const projection = await monitorOwnerProjection(false);
+    return [
+      { value: '', label: '(none â€” top level / organization root)' },
+      ...projection.components.map(({ component: c }) => ({ value: c.id, label: `${c.name} Â· ${c.kind}` })),
+    ];
+  }
   const comps = await getComponentsAdmin({ archived: false });
   return [
     { value: '', label: '(none — top level / organization root)' },
@@ -75,6 +89,11 @@ export async function componentParentOptions(): Promise<FieldOption[]> {
 
 /** Product-node options for select fields (kind = product). */
 export async function productOptions(): Promise<FieldOption[]> {
+  if (monitorAdminOwnerConfigured()) {
+    const projection = await monitorOwnerProjection(false);
+    return projection.components.map(({ component }) => component)
+      .filter((c) => !c.archived && c.kind === 'product').map((c) => ({ value: c.id, label: c.name }));
+  }
   const comps = await getComponentsAdmin({ archived: false });
   return comps.filter((c) => c.kind === 'product').map((c) => ({ value: c.id, label: c.name }));
 }

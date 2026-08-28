@@ -12,9 +12,18 @@ import { componentExists, isLeafComponent } from '@/lib/components';
 import { notifyMaintenance } from '@/lib/notify';
 import { componentOptions } from '@/lib/admin/view';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
+import { pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
+import {
+  ownerCommandID,
+  ownerMaintenanceProjection,
+  ownerNowUnix,
+  sendOwnerMaintenanceCommand,
+  toUnixSeconds,
+} from '@/pages/api/v1/maintenance/owner';
 
 const resource = getResource('maintenance')!;
 const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+const ownerMode = pulpOwnerRouteFamilyConfigured('maintenance');
 let error = '';
 
 if (Astro.request.method === 'POST') {
@@ -27,8 +36,20 @@ if (Astro.request.method === 'POST') {
   const affects = form.getAll('affects').map((a) => a.toString()).filter(Boolean);
 
   let unknown = '';
-  for (const a of affects) {
-    if (!(await componentExists(a)) || !(await isLeafComponent(a))) { unknown = a; break; }
+  if (ownerMode) {
+    const projection = await ownerMaintenanceProjection();
+    const components = new Map((projection.components ?? []).map(({ component }) => [component.id, component]));
+    for (const a of affects) {
+      const component = components.get(a);
+      if (!component || component.archived || (component.kind !== 'service' && component.kind !== 'host')) {
+        unknown = a;
+        break;
+      }
+    }
+  } else {
+    for (const a of affects) {
+      if (!(await componentExists(a)) || !(await isLeafComponent(a))) { unknown = a; break; }
+    }
   }
 
   if (!title || !summary || !start || !end || affects.length === 0) {
@@ -37,11 +58,27 @@ if (Astro.request.method === 'POST') {
     error = `Unknown or non-leaf component "${unknown}".`;
   } else {
     const newId = nanoid();
-    await db.insert(maintenance).values({
-      id: newId, title, summary, kind,
-      scheduledStart: new Date(start), scheduledEnd: new Date(end), affects,
-    });
-    await notifyMaintenance(newId, 'announced'); // email subscribers (best-effort, self-guarded)
+    if (ownerMode) {
+      const now = ownerNowUnix();
+      await sendOwnerMaintenanceCommand({
+        version: 'monitor.v1',
+        id: ownerCommandID('maintenance-admin-page-create', newId),
+        kind: 'schedule_maintenance',
+        at_unix: now,
+        maintenance: {
+          id: newId, title, summary, kind,
+          scheduled_start_unix: toUnixSeconds(new Date(start)),
+          scheduled_end_unix: toUnixSeconds(new Date(end)),
+          affects, created_at_unix: now,
+        },
+      });
+    } else {
+      await db.insert(maintenance).values({
+        id: newId, title, summary, kind,
+        scheduledStart: new Date(start), scheduledEnd: new Date(end), affects,
+      });
+      await notifyMaintenance(newId, 'announced'); // email subscribers (best-effort, self-guarded)
+    }
     // (Instances may hook emergency windows here — e.g. light up an external banner.)
     return Astro.redirect('/admin/maintenance');
   }

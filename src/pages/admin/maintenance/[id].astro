@@ -11,39 +11,91 @@ import { eq } from 'drizzle-orm';
 import { getResource } from '@/lib/admin/resources';
 import { componentOptions } from '@/lib/admin/view';
 import { navCounts, propertyOptions } from '@/lib/admin/nav';
+import { pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
+import {
+  ownerCommandID,
+  ownerMaintenanceByID,
+  ownerNowUnix,
+  sendOwnerMaintenanceCommand,
+  toLegacyMaintenance,
+  toUnixSeconds,
+} from '@/pages/api/v1/maintenance/owner';
 
 const { id } = Astro.params;
 if (!id) return Astro.redirect('/admin/maintenance');
 const resource = getResource('maintenance')!;
 const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+const ownerMode = pulpOwnerRouteFamilyConfigured('maintenance');
 let error = '';
 
 if (Astro.request.method === 'POST') {
   const form = await Astro.request.formData();
   const action = form.get('_action')?.toString();
-  if (action === 'delete') {
+  if (ownerMode) {
+    const existing = await ownerMaintenanceByID(id);
+    if (!existing || existing.cancelled) return Astro.redirect('/admin/maintenance');
+    if (action === 'delete') {
+      await sendOwnerMaintenanceCommand({
+        version: 'monitor.v1',
+        id: ownerCommandID('maintenance-admin-page-delete', id),
+        kind: 'delete_maintenance',
+        at_unix: ownerNowUnix(),
+        maintenance_id: id,
+      });
+      return Astro.redirect('/admin/maintenance');
+    }
+
+    const title = form.get('title')?.toString() ?? '';
+    const summary = form.get('summary')?.toString() ?? '';
+    const kind = form.get('kind')?.toString() || 'scheduled';
+    const start = form.get('scheduledStart')?.toString() ?? '';
+    const end = form.get('scheduledEnd')?.toString() ?? '';
+    const affects = form.getAll('affects').map((a) => a.toString()).filter(Boolean);
+    if (!title || !summary || !start || !end || affects.length === 0) {
+      error = 'All fields are required.';
+    } else {
+      const body = { title, summary, kind, start, end, affects };
+      await sendOwnerMaintenanceCommand({
+        version: 'monitor.v1',
+        id: ownerCommandID('maintenance-admin-page-edit', `${id}\0${JSON.stringify(body)}`),
+        kind: 'edit_maintenance',
+        at_unix: ownerNowUnix(),
+        maintenance_patch: {
+          id, title, summary, kind,
+          scheduled_start_unix: toUnixSeconds(new Date(start)),
+          scheduled_end_unix: toUnixSeconds(new Date(end)),
+          affects,
+        },
+      });
+      return Astro.redirect('/admin/maintenance');
+    }
+  }
+  if (!ownerMode && action === 'delete') {
     await db.delete(maintenance).where(eq(maintenance.id, id));
     // (Instances may hook cancellation here — e.g. clear an external banner.)
     return Astro.redirect('/admin/maintenance');
   }
-  const title = form.get('title')?.toString() ?? '';
-  const summary = form.get('summary')?.toString() ?? '';
-  const kind = form.get('kind')?.toString() || 'scheduled';
-  const start = form.get('scheduledStart')?.toString() ?? '';
-  const end = form.get('scheduledEnd')?.toString() ?? '';
-  const affects = form.getAll('affects').map((a) => a.toString()).filter(Boolean);
-  if (!title || !summary || !start || !end || affects.length === 0) {
-    error = 'All fields are required.';
-  } else {
-    await db.update(maintenance).set({
-      title, summary, kind, scheduledStart: new Date(start), scheduledEnd: new Date(end), affects,
-    }).where(eq(maintenance.id, id));
-    return Astro.redirect('/admin/maintenance');
+  if (!ownerMode) {
+    const title = form.get('title')?.toString() ?? '';
+    const summary = form.get('summary')?.toString() ?? '';
+    const kind = form.get('kind')?.toString() || 'scheduled';
+    const start = form.get('scheduledStart')?.toString() ?? '';
+    const end = form.get('scheduledEnd')?.toString() ?? '';
+    const affects = form.getAll('affects').map((a) => a.toString()).filter(Boolean);
+    if (!title || !summary || !start || !end || affects.length === 0) {
+      error = 'All fields are required.';
+    } else {
+      await db.update(maintenance).set({
+        title, summary, kind, scheduledStart: new Date(start), scheduledEnd: new Date(end), affects,
+      }).where(eq(maintenance.id, id));
+      return Astro.redirect('/admin/maintenance');
+    }
   }
 }
 
-const rows = await db.select().from(maintenance).where(eq(maintenance.id, id));
-const record = rows[0];
+const owned = ownerMode ? await ownerMaintenanceByID(id) : undefined;
+const rows = ownerMode ? [] : await db.select().from(maintenance).where(eq(maintenance.id, id));
+const record = ownerMode && owned && !owned.cancelled ? toLegacyMaintenance(owned) : rows[0];
 if (!record) return Astro.redirect('/admin/maintenance');
 
 const components = await componentOptions();

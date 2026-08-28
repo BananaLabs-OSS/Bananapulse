@@ -42,3 +42,14 @@ export async function revokeApiToken(id: string) {
 export async function listApiTokens() {
   return db.select().from(apiTokens).orderBy(apiTokens.createdAt);
 }
+
+/** Validate a Bearer token from the Authorization header and enforce a minimum scope level. Returns the token row, or null on any failure. */
+export async function requireApiToken(request: Request, minScope: 'read' | 'write' | 'full') {
+  const auth = request.headers.get('Authorization');
+  if (!auth?.startsWith('Bearer ')) return null;
+  const token = await validateApiToken(auth.slice(7));
+  if (!token) return null;
+  const scopeRank: Record<string, number> = { read: 1, write: 2, full: 3 };
+  if ((scopeRank[token.scope] ?? 0) < (scopeRank[minScope] ?? 3)) return null;
+  return token;
+}

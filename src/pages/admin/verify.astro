@@ -1,14 +1,26 @@
 ---
-import { consumeMagicLink, createSession, signCookie, COOKIE_NAME } from '@/lib/admin-auth';
+import {
+  consumeMagicLink,
+  consumeMagicLinkWithOwner,
+  createSession,
+  createSessionWithOwner,
+  signCookie,
+  COOKIE_NAME,
+} from '@/lib/admin-auth';
+import { pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
 import { SITE_TITLE } from '@/pulse.config';
 
 const token = Astro.url.searchParams.get('token');
 let error = '';
 
 if (token) {
-  const email = await consumeMagicLink(token);
-  if (email) {
-    const sessionId = await createSession(email);
+  const ownerEnabled = pulpOwnerRouteFamilyConfigured('auth');
+  const ownerChallenge = ownerEnabled ? await consumeMagicLinkWithOwner(token) : null;
+  const email = ownerEnabled ? null : await consumeMagicLink(token);
+  if (ownerChallenge || email) {
+    const sessionId = ownerChallenge
+      ? await createSessionWithOwner(ownerChallenge.challengeId, ownerChallenge.identityId)
+      : await createSession(email!);
     const secret = process.env.ADMIN_SESSION_SECRET ?? '';
     const signed = signCookie(sessionId, secret);
     Astro.cookies.set(COOKIE_NAME, signed, {

@@ -7,9 +7,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // unknown id, would create an invisible / mis-placed outage. This pins the
 // guard at the admin declare boundary.
 
-const { recordManualOverride } = vi.hoisted(() => ({
+const { recordManualOverride, owner } = vi.hoisted(() => ({
   // one-arg signature so .mock.calls[0][0] typechecks (it's called with an opts object)
   recordManualOverride: vi.fn(async (_opts: any) => undefined),
+  owner: {
+    configured: vi.fn(() => false),
+    projection: vi.fn(),
+    publish: vi.fn(async () => undefined),
+    incident: vi.fn(),
+  },
 }));
 
 vi.mock('@/lib/admin-api', () => ({
@@ -32,6 +38,20 @@ vi.mock('@/lib/quorum', () => ({
   recordManualOverride,
   openIncidentFor: vi.fn(async () => ({ id: 'inc1' })),
 }));
+vi.mock('@/lib/pulp-bridge', () => ({
+  pulpOwnerRouteFamilyConfigured: owner.configured,
+}));
+vi.mock('../components/pulp-owner', () => ({
+  monitorOwnerProjection: owner.projection,
+}));
+vi.mock('../../incidents/owner', () => ({
+  incidentProjection: vi.fn(),
+  legacyIncident: vi.fn((incident) => incident),
+  newOwnerCommand: vi.fn((_kind, _identity, payload) => ({ id: 'owner-command', ...payload })),
+  ownerFailure: vi.fn(() => new Response(null, { status: 503 })),
+  ownerIncident: owner.incident,
+  publishIncidentCommand: owner.publish,
+}));
 vi.mock('@/db', () => ({
   db: { select: () => ({ from: () => ({ orderBy: () => ({ limit: async () => [] }) }) }) },
 }));
@@ -53,6 +73,7 @@ function ctx(body: any) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  owner.configured.mockReturnValue(false);
 });
 
 describe('POST /api/v1/admin/incidents — leaf-only declare guard (audit regression)', () => {
@@ -98,6 +119,41 @@ describe('POST /api/v1/admin/incidents — leaf-only declare guard (audit regres
     mockLeaf.mockResolvedValueOnce(true).mockResolvedValueOnce(false);
     const res = await POST(ctx({ affects: ['svc-a', 'product-b'], severity: 'minor' }));
     expect(res.status).toBe(400);
+    expect(recordManualOverride).not.toHaveBeenCalled();
+  });
+
+  it('uses owner projection leaf validation without touching legacy component queries', async () => {
+    owner.configured.mockReturnValue(true);
+    owner.projection.mockResolvedValue({
+      components: [{ component: { id: 'product-b', kind: 'product', archived: false } }],
+    });
+
+    const res = await POST(ctx({ componentId: 'product-b', severity: 'major' }));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toContain('not a leaf');
+    expect(mockExists).not.toHaveBeenCalled();
+    expect(mockLeaf).not.toHaveBeenCalled();
+    expect(recordManualOverride).not.toHaveBeenCalled();
+    expect(owner.publish).not.toHaveBeenCalled();
+  });
+
+  it('dispatches a valid owner leaf without any legacy DB or quorum validation', async () => {
+    owner.configured.mockReturnValue(true);
+    owner.projection.mockResolvedValue({
+      components: [{ component: { id: 'sessions-api', kind: 'service', archived: false } }],
+    });
+    owner.incident.mockResolvedValue({
+      incident: { id: 'incident-owner', title: 'down', summary: 'down' },
+      timeline: [],
+    });
+
+    const res = await POST(ctx({ componentId: 'sessions-api', severity: 'major', title: 'down' }));
+
+    expect(res.status).toBe(201);
+    expect(owner.publish).toHaveBeenCalledOnce();
+    expect(mockExists).not.toHaveBeenCalled();
+    expect(mockLeaf).not.toHaveBeenCalled();
     expect(recordManualOverride).not.toHaveBeenCalled();
   });
 });

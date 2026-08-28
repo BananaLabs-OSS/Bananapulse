@@ -1,6 +1,7 @@
 import { defineMiddleware } from 'astro:middleware';
 import { resolveScope } from './lib/scope';
-import { verifyCookie, COOKIE_NAME } from './lib/admin-auth';
+import { verifyCookie, COOKIE_NAME, validateSessionWithOwner } from './lib/admin-auth';
+import { pulpOwnerRouteFamilyConfigured } from './lib/pulp-bridge';
 import { SCOPES, UMBRELLA_ID } from './pulse.config';
 
 export const onRequest = defineMiddleware(async ({ request, locals, url, cookies, redirect }, next) => {
@@ -42,8 +43,12 @@ export const onRequest = defineMiddleware(async ({ request, locals, url, cookies
       return redirect('/admin/login');
     }
 
-    const { validateSession } = await import('./lib/admin-auth');
-    const email = await validateSession(sessionId);
+    // Once enabled, validation is exclusively owned by pulp-auth. A bridge or
+    // owner error is deliberately not allowed to fall through to legacy DB
+    // validation, because that would re-authorize a revoked owner session.
+    const email = pulpOwnerRouteFamilyConfigured('auth')
+      ? await validateSessionWithOwner(sessionId)
+      : await (await import('./lib/admin-auth')).validateSession(sessionId);
     if (!email) {
       cookies.delete(COOKIE_NAME, { path: '/' });
       return redirect('/admin/login');

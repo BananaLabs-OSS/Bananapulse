@@ -31,6 +31,19 @@ export interface ViewChild {
   uptime: string[];
   /** Reliability % over the days that have data (no-data days excluded). */
   uptimePct: number;
+  /** This child's subtree component ids — lets the client filter day-incidents to it. */
+  subtree: string[];
+}
+
+/** A compact incident record for the client-side "tap a day → its incidents" lookup. */
+export interface DayIncident {
+  id: string;
+  title: string;
+  severity: string;
+  affectedName?: string;
+  affects: string[];   // subtree component ids it touches
+  start: string;       // YYYY-MM-DD
+  end: string;         // YYYY-MM-DD (today if still open)
 }
 
 export interface CrumbItem {
@@ -72,6 +85,11 @@ export interface ScopeView {
   /** ALL active incidents anywhere in this node's subtree, worst-first, each tagged
    *  with the affected component name — the "what's wrong below me" quick list. */
   subtreeIncidents: Incident[];
+  /** Incidents (active + recently resolved) in this subtree, with date ranges, for the
+   *  client-side "tap a day on the uptime bar → see that day's incidents" lookup. */
+  dayIncidents: DayIncident[];
+  /** This node's subtree component ids — the main strip's day-incident filter. */
+  subtreeIds: string[];
   /** Total active issue count across this scope's subtree. */
   issueCount: number;
   /** Total scheduled-maintenance count across this scope's subtree. */

@@ -1,0 +1,39 @@
+name = "lua-orchestrator"
+version = "1.0.0"
+# Application bundle artifact built from the reusable Pulp-Lua package.
+wasm = "lua-orchestrator.wasm"
+wasm_sha256 = "d287d2d93e09b02830ddf53f42e398b9c5ec49558e338b18e1b4c18d298c8006"
+
+provides = [
+  "orchestrator.dispatch",
+  "orchestrator.saga.execute.v1",
+]
+consumes = [
+  "monitor.v1.command",
+  "monitor.v1.query",
+  "monitor.v1.projection",
+  "subscription-outbox.v1.subscribe",
+  "subscription-outbox.v1.confirm",
+  "subscription-outbox.v1.unsubscribe",
+  "subscription-outbox.v1.confirmation.resend",
+  "subscription-outbox.v1.projection",
+  "subscription-outbox.v1.admin.list",
+  "subscription-outbox.v1.admin.get",
+  "subscription-outbox.v1.admin.delete",
+  "subscription-outbox.v1.admin.state.set",
+  "subscription-outbox.v1.migration.import",
+  "subscription-outbox.v1.transition.apply",
+  "subscription-outbox.v1.outbox.claim",
+  "subscription-outbox.v1.outbox.receipt.apply",
+]
+depends_on = [
+  "pulp-monitor",
+  "subscription-outbox",
+]
+
+# Lua sequences state owners but cannot access SQLite, HTTP, email, or any
+# other privileged host extension directly.
+capabilities = []
+
+[config]
+timeout_ms = 10000

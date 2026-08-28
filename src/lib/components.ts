@@ -13,9 +13,9 @@ import { isNull, asc, eq, gte } from 'drizzle-orm';
 import type { ServiceStatus, Incident } from './types';
 import { statusToState } from './types';
 import { derivedComponentStatuses, evaluateComponent, openIncidentFor } from './quorum';
-import { getActiveIncidents } from './db-incidents';
+import { getActiveIncidents, getResolvedIncidents } from './db-incidents';
 import { rootComponentId, UMBRELLA_ID } from '@/pulse.config';
-import type { ScopeView, ViewChild, CrumbItem, MaintWindow } from './view';
+import type { ScopeView, ViewChild, CrumbItem, MaintWindow, DayIncident } from './view';
 
 type Comp = typeof components.$inferSelect;
 type MaintRow = typeof maintenance.$inferSelect;
@@ -58,6 +58,59 @@ function windowedDays(stored: unknown): string[] {
     const d = new Date(today);
     d.setUTCDate(today.getUTCDate() - i);
     out.push(byDate.get(d.toISOString().slice(0, 10)) ?? 'future');
+  }
+  return out;
+}
+// Today's bar must always agree with the LIVE banner status. The stored 90-day
+// snapshot can have captured a transient blip for today (a flap), leaving the
+// bar red while the component is currently healthy — the "why is it red right
+// now?" bug. Overwrite the final (today) cell with the live derived status so
+// the bar and the banner can never disagree.
+const STATUS_DAY: Record<string, string> = { operational: 'ok', degraded: 'deg', outage: 'out', maintenance: 'maint' };
+function withLiveToday(days: string[], live: ServiceStatus): string[] {
+  if (!days.length) return days;
+  const out = days.slice();
+  out[out.length - 1] = STATUS_DAY[live] ?? out[out.length - 1];
+  return out;
+}
+
+// Severity -> the day-status it paints on the uptime bar. A minor stays 'ok' (a
+// minor is a quiet 'watch'; the component reads operational), so only MODERATE
+// (deg) and MAJOR (out) colour a day. Because a coloured day is ALWAYS an
+// incident, hovering one always resolves a "why" — no more orphan red/yellow.
+const SEV_DAY: Record<string, string> = { major: 'out', moderate: 'deg' };
+
+/** The 90 ISO dates of the uptime window, oldest→newest (index 89 = today, UTC) —
+ *  same anchoring as windowedDays() and the skin's barISO(), so indices line up. */
+function windowDates(): string[] {
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const out: string[] = [];
+  for (let i = 89; i >= 0; i--) { const d = new Date(today); d.setUTCDate(today.getUTCDate() - i); out.push(d.toISOString().slice(0, 10)); }
+  return out;
+}
+
+/**
+ * Paint incident days onto a derived uptime array: for every incident touching
+ * this node's subtree, mark its date range deg (moderate) / out (major), keeping
+ * the worst per day. This makes the bars a true reflection of incident history,
+ * so a degraded/down bar always has the incident behind it that the day-card
+ * lookup shows on hover.
+ */
+function overlayIncidentDays(days: string[], subtreeSet: Set<string>, incidents: Incident[], dates: string[]): string[] {
+  const out = days.slice();
+  const todayIso = dates[dates.length - 1];
+  for (const inc of incidents) {
+    const paint = SEV_DAY[inc.severity];
+    if (!paint) continue;
+    if (!(inc.affects ?? []).some((a) => subtreeSet.has(a))) continue;
+    const start = (inc.started ?? todayIso).slice(0, 10);
+    const end = inc.resolved ? inc.resolved.slice(0, 10) : todayIso;
+    for (let i = 0; i < dates.length && i < out.length; i++) {
+      if (dates[i] >= start && dates[i] <= end && (DAY_RANK[paint] ?? 0) > (DAY_RANK[out[i]] ?? -1)) {
+        out[i] = paint;
+      }
+    }
   }
   return out;
 }
@@ -238,6 +291,27 @@ function subtreeIncidentList(t: Tree, id: string): Incident[] {
     })
     .sort((a, b) => (INC_SEV_RANK[b.severity] ?? 0) - (INC_SEV_RANK[a.severity] ?? 0));
 }
+// Recent RESOLVED incidents in a node's subtree (newest-first, already ordered by the
+// query), tagged with the affected component's name — the "what happened recently"
+// history list. `resolved` is the recent resolved set fetched once per build.
+function buildDayIncidents(t: Tree, id: string, resolved: Incident[]): DayIncident[] {
+  const set = new Set(subtreeIds(t, id));
+  const today = new Date().toISOString().slice(0, 10);
+  return [...t.incidents, ...resolved]
+    .filter((i) => (i.affects ?? []).some((a) => set.has(a)))
+    .map((i) => {
+      const affId = (i.affects ?? []).find((a) => set.has(a));
+      return {
+        id: i.id,
+        title: i.title,
+        severity: i.severity,
+        affectedName: affId ? (t.byId.get(affId)?.name ?? affId) : undefined,
+        affects: (i.affects ?? []).filter((a) => set.has(a)),
+        start: (i.started ?? today).slice(0, 10),
+        end: i.resolved ? i.resolved.slice(0, 10) : today,
+      };
+    });
+}
 /** root..node chain. */
 function chainTo(t: Tree, id: string): Comp[] {
   const out: Comp[] = [];
@@ -279,22 +353,31 @@ export async function buildComponentView(scope: string | null, segs: string[]): 
 
   const node = t.byId.get(id)!;
   const isRoot = id === rootId;
+  const resolved = await getResolvedIncidents({ limit: 300, noTimeline: true }); // resolved → filtered to this subtree by date (list only, no timelines/product lookups)
   const status = effective(t, id);
   const kids = t.kids.get(id) ?? [];
   const upMemo = new Map<string, string[]>(); // derived-uptime cache for this build
   const scopeMaint = [...recurringMaintenance(), ...subtreeMaintenance(t, id)];
+  const allInc = [...t.incidents, ...resolved]; // active + resolved — drives the incident-day overlay
+  const winDates = windowDates();
 
-  const children: ViewChild[] = kids.map((c) => ({
-    id: c.id,
-    name: c.name,
-    kind: (c.tag ?? c.kind) as ViewChild['kind'],
-    status: effective(t, c.id),
-    issueCount: issueCount(t, c.id),
-    maintCount: subtreeMaintenance(t, c.id).length,
-    href: hrefFor(t, c.id, rootId),
-    uptime: derivedUptime(t, c.id, upMemo),
-    uptimePct: uptimePctOf(derivedUptime(t, c.id, upMemo)),
-  }));
+  const children: ViewChild[] = kids.map((c) => {
+    const cStatus = effective(t, c.id);
+    const cSub = subtreeIds(t, c.id);
+    const cUptime = withLiveToday(overlayIncidentDays(derivedUptime(t, c.id, upMemo), new Set(cSub), allInc, winDates), cStatus);
+    return {
+      id: c.id,
+      name: c.name,
+      kind: (c.tag ?? c.kind) as ViewChild['kind'],
+      status: cStatus,
+      issueCount: issueCount(t, c.id),
+      maintCount: subtreeMaintenance(t, c.id).length,
+      href: hrefFor(t, c.id, rootId),
+      uptime: cUptime,
+      uptimePct: uptimePctOf(cUptime),
+      subtree: cSub,
+    };
+  });
 
   const chain = chainTo(t, id);
   const ri = chain.findIndex((c) => c.id === rootId);
@@ -305,6 +388,9 @@ export async function buildComponentView(scope: string | null, segs: string[]): 
   }));
 
   const level: ScopeView['level'] = node.kind === 'organization' ? 'umbrella' : node.kind === 'product' ? 'product' : 'service';
+
+  const scopeSub = subtreeIds(t, id);
+  const scopeUptime = withLiveToday(overlayIncidentDays(derivedUptime(t, id, upMemo), new Set(scopeSub), allInc, winDates), status);
 
   return {
     status,
@@ -317,12 +403,14 @@ export async function buildComponentView(scope: string | null, segs: string[]): 
     children,
     attachedIncidents: incidentsAt(t, id),
     subtreeIncidents: subtreeIncidentList(t, id),
+    dayIncidents: buildDayIncidents(t, id, resolved),
+    subtreeIds: scopeSub,
     issueCount: issueCount(t, id),
     maintCount: scopeMaint.length,
     maintenance: scopeMaint,
     affectedChildNames: children.filter((c) => c.status !== 'operational').map((c) => c.name),
-    uptime: derivedUptime(t, id, upMemo),
-    uptimePct: uptimePctOf(derivedUptime(t, id, upMemo)),
+    uptime: scopeUptime,
+    uptimePct: uptimePctOf(scopeUptime),
   };
 }
 

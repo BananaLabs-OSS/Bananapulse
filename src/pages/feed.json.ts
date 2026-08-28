@@ -6,6 +6,8 @@
  */
 import type { APIRoute } from 'astro';
 import { getAllIncidents } from '../lib/db-incidents';
+import { getMonitorProjection, pulpMonitorProjectionConfigured } from '../lib/pulp-bridge';
+import { buildPulpIncidentHistory } from '../lib/pulp-monitor-projection';
 import { SITE_TITLE, STATUS_DOMAIN } from '../pulse.config';
 import { incidentStatusLabel } from '../lib/types';
 import { severityLabel } from '../lib/skin-copy';
@@ -13,11 +15,20 @@ import type { Incident } from '../lib/types';
 
 export const GET: APIRoute = async ({ locals }) => {
   const scope = (locals as any).scope as string | null;
+  const ownerSelected = pulpMonitorProjectionConfigured();
 
   let incidents: Incident[] = [];
   try {
-    incidents = await getAllIncidents({ product: scope || undefined, limit: 20 });
+    incidents = ownerSelected
+      ? buildPulpIncidentHistory(await getMonitorProjection(), scope, 20).incidents
+      : await getAllIncidents({ product: scope || undefined, limit: 20 });
   } catch (_e) {
+    if (ownerSelected) {
+      return Response.json(
+        { error: 'Live incident feed is temporarily unavailable.' },
+        { status: 503 },
+      );
+    }
     // DB unreachable — empty feed
   }
 

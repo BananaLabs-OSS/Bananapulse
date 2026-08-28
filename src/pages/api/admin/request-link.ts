@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro';
-import { createMagicLink } from '@/lib/admin-auth';
+import { createMagicLink, issueMagicLinkWithOwner } from '@/lib/admin-auth';
 import { sendMagicLinkEmail } from '@/lib/email';
+import { pulpOwnerRouteFamilyConfigured } from '@/lib/pulp-bridge';
 
 export const POST: APIRoute = async ({ request, url }) => {
   try {
@@ -18,7 +19,13 @@ export const POST: APIRoute = async ({ request, url }) => {
       return okResponse;
     }
 
-    const token = await createMagicLink(email);
+    const ownerEnabled = pulpOwnerRouteFamilyConfigured('auth');
+    const ownerResult = ownerEnabled ? await issueMagicLinkWithOwner(email) : null;
+    // The auth owner intentionally returns `deliver: false` for an unknown or
+    // disabled identity. Keep the public response indistinguishable.
+    if (ownerEnabled && !ownerResult?.deliver) return okResponse;
+
+    const token = ownerResult?.token ?? await createMagicLink(email);
     const magicUrl = `${url.origin}/admin/verify?token=${token}`;
     await sendMagicLinkEmail(email, magicUrl);
     return okResponse;

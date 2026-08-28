@@ -1,5 +1,10 @@
 import type { APIRoute } from 'astro';
 import { removeSubscriber } from '@/lib/subscribers';
+import {
+  pulpSubscriberLifecycleConfigured,
+  subscriberTokenRequestID,
+  unsubscribeWithOwner,
+} from '@/lib/pulp-bridge';
 
 /**
  * GET /api/unsubscribe?token=<subscriber-id>
@@ -15,7 +20,15 @@ export const GET: APIRoute = async ({ url }) => {
     );
   }
 
-  await removeSubscriber(token);
+  if (pulpSubscriberLifecycleConfigured()) {
+    try {
+      await unsubscribeWithOwner(subscriberTokenRequestID('unsubscribe', token), token);
+    } catch {
+      // Preserve the public endpoint's idempotent anti-enumeration contract.
+    }
+  } else {
+    await removeSubscriber(token);
+  }
 
   // Redirect to status page — idempotent (ok even if row was already gone).
   return new Response(null, {
