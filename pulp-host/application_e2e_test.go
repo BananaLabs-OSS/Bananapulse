@@ -388,7 +388,7 @@ func TestHTTPBridgeRunsRealPulpLuaWASMComposition(t *testing.T) {
 		SourceID string `json:"source_id"`
 	}
 	postBridgeEvent(t, server.URL, "bridge-test-token", eventHostAuthSourceValidate, bridgeAuthSourceCredentialValidateRequest{
-		Version: "bananapulse.auth/v1", RequestID: "bridge-source-validate-1",
+		Version: "credential-registry/v1", RequestID: "bridge-source-validate-1",
 		Token: "bridge-vendor-test-token", ValidatedAt: now,
 	}, &sourceValidated)
 	if !sourceValidated.Valid || sourceValidated.SourceID != "bridge-vendor" {
@@ -506,7 +506,7 @@ func TestHTTPBridgeRunsRealPulpLuaWASMComposition(t *testing.T) {
 		t.Fatalf("source lifecycle revoke = %#v", sourceRevoked)
 	}
 	postBridgeEvent(t, server.URL, "bridge-test-token", eventHostAuthSourceValidate, bridgeAuthSourceCredentialValidateRequest{
-		Version: "bananapulse.auth/v1", RequestID: "bridge-source-validate-2",
+		Version: "credential-registry/v1", RequestID: "bridge-source-validate-2",
 		Token: "bridge-vendor-test-token", ValidatedAt: now.Add(3 * time.Minute),
 	}, &sourceValidated)
 	if sourceValidated.Valid {
@@ -581,7 +581,7 @@ func TestHTTPBridgeCallsAuthOwnerDirectly(t *testing.T) {
 		Imported   bool   `json:"imported"`
 	}
 	postBridgeEvent(t, server.URL, "bridge-test-token", eventHostAuthAdminIdentityImport, bridgeAuthAdminIdentityImportRequest{
-		Version: "bananapulse.auth/v1", RequestID: "auth-import-1", IdentityID: "admin-1",
+		Version: "credential-registry/v1", RequestID: "auth-import-1", IdentityID: "admin-1",
 		Email: "admin@example.test", State: "enabled", ImportedAt: now,
 	}, &imported)
 	if !imported.Imported || imported.IdentityID != "admin-1" {
@@ -594,7 +594,7 @@ func TestHTTPBridgeCallsAuthOwnerDirectly(t *testing.T) {
 		ChallengeID string `json:"challenge_id"`
 	}
 	postBridgeEvent(t, server.URL, "bridge-test-token", eventHostAuthMagicLinkIssue, bridgeAuthMagicLinkIssueRequest{
-		Version: "bananapulse.auth/v1", RequestID: "auth-issue-1", Email: "admin@example.test",
+		Version: "credential-registry/v1", RequestID: "auth-issue-1", Email: "admin@example.test",
 		Token: "test-magic-token", IssuedAt: now, ExpiresAt: now.Add(15 * time.Minute),
 	}, &issued)
 	if !issued.Accepted || !issued.Deliver || issued.ChallengeID == "" {
@@ -607,7 +607,7 @@ func TestHTTPBridgeCallsAuthOwnerDirectly(t *testing.T) {
 		IdentityID    string `json:"identity_id"`
 	}
 	postBridgeEvent(t, server.URL, "bridge-test-token", eventHostAuthMagicLinkConsume, bridgeAuthMagicLinkConsumeRequest{
-		Version: "bananapulse.auth/v1", RequestID: "auth-consume-1",
+		Version: "credential-registry/v1", RequestID: "auth-consume-1",
 		Token: "test-magic-token", ConsumedAt: now.Add(time.Minute),
 	}, &consumed)
 	if !consumed.Authenticated || consumed.ChallengeID != issued.ChallengeID || consumed.IdentityID != "admin-1" {
@@ -619,7 +619,7 @@ func TestHTTPBridgeCallsAuthOwnerDirectly(t *testing.T) {
 		Created   bool   `json:"created"`
 	}
 	postBridgeEvent(t, server.URL, "bridge-test-token", eventHostAuthSessionCreate, bridgeAuthSessionCreateRequest{
-		Version: "bananapulse.auth/v1", RequestID: "auth-session-1",
+		Version: "credential-registry/v1", RequestID: "auth-session-1",
 		ChallengeID: consumed.ChallengeID, IdentityID: consumed.IdentityID, Token: "test-session-token",
 		IssuedAt: now.Add(time.Minute), ExpiresAt: now.Add(24 * time.Hour),
 	}, &created)
@@ -634,7 +634,7 @@ func TestHTTPBridgeCallsAuthOwnerDirectly(t *testing.T) {
 		Role       string `json:"role"`
 	}
 	postBridgeEvent(t, server.URL, "bridge-test-token", eventHostAuthSessionValidate, bridgeAuthSessionValidateRequest{
-		Version: "bananapulse.auth/v1", Token: "test-session-token", At: now.Add(2 * time.Minute),
+		Version: "credential-registry/v1", Token: "test-session-token", At: now.Add(2 * time.Minute),
 	}, &validated)
 	if !validated.Valid || validated.SessionID != created.SessionID ||
 		validated.IdentityID != "admin-1" || validated.Role != "admin" {
@@ -694,9 +694,9 @@ func TestHTTPBridgeSecondWaveFamiliesFailClosed(t *testing.T) {
 		body  string
 	}{
 		{event: eventMonitorCommand, body: `{"version":"monitor.v1","id":"admin-1","kind":"upsert_component","at_unix":1}`},
-		{event: eventSubscriberAdminList, body: `{"version":"bananapulse.subscribers/v1"}`},
-		{event: eventSubscriberMigrationImport, body: `{"version":"bananapulse.subscribers/v1","request_id":"import-1","subscribers":[]}`},
-		{event: eventHostAuthSessionValidate, body: `{"version":"bananapulse.auth/v1","token":"opaque","at":"2026-07-26T00:00:00Z"}`},
+		{event: eventSubscriberAdminList, body: `{"version":"subscription-outbox/v1"}`},
+		{event: eventSubscriberMigrationImport, body: `{"version":"subscription-outbox/v1","request_id":"import-1","subscribers":[]}`},
+		{event: eventHostAuthSessionValidate, body: `{"version":"credential-registry/v1","token":"opaque","at":"2026-07-26T00:00:00Z"}`},
 	} {
 		request, err := http.NewRequest(http.MethodPost, server.URL+bridgeEventsPath+test.event, bytes.NewBufferString(test.body))
 		if err != nil {
@@ -744,7 +744,7 @@ func TestAuthBridgeUsesExactTypedContracts(t *testing.T) {
 	}
 
 	body := httptest.NewRequest(http.MethodPost, "/", bytes.NewBufferString(
-		`{"version":"bananapulse.auth/v1","token":"opaque","at":"2026-07-26T00:00:00Z","unexpected":true}`,
+		`{"version":"credential-registry/v1","token":"opaque","at":"2026-07-26T00:00:00Z","unexpected":true}`,
 	))
 	_, target, _ := authBridgeRequest(eventHostAuthSessionValidate)
 	if err := decodeBridgeJSON(body, target, false); err == nil {

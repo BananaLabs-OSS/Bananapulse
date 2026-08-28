@@ -327,7 +327,7 @@ func (d *legacyPulpDestination) apply(ctx context.Context, envelope legacyImport
 		}
 		var authResult any
 		if err := d.client.callProviderRaw(ctx, authOwnerCell, providerAuthSourceAdminImport, bridgeAuthSourceCredentialImportRequest{
-			Version: "bananapulse.auth/v1", RequestID: envelope.ImportID + "/credential",
+			Version: "credential-registry/v1", RequestID: envelope.ImportID + "/credential",
 			CredentialID: row.ID, SourceID: row.ID, TokenDigest: row.TokenHash,
 			CreatedAt: row.CreatedAt, RevokedAt: row.RevokedAt,
 		}, &authResult); err != nil {
@@ -452,7 +452,7 @@ func (d *legacyPulpDestination) apply(ctx context.Context, envelope legacyImport
 		}
 		var result any
 		return d.client.callProviderRaw(ctx, authOwnerCell, providerAuthAPITokenAdminImport, bridgeAuthAPITokenImportRequest{
-			Version: "bananapulse.auth/v1", RequestID: envelope.ImportID,
+			Version: "credential-registry/v1", RequestID: envelope.ImportID,
 			TokenID: row.ID, Name: row.Name, Scope: row.Scope, TokenDigest: row.TokenHash,
 			CreatedAt: row.CreatedAt, ExpiresAt: row.ExpiresAt, RevokedAt: row.RevokedAt, LastUsedAt: row.LastUsedAt,
 		}, &result)

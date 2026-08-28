@@ -104,7 +104,7 @@ func (s *sourceLifecycleService) Create(ctx context.Context, request sourceAdmin
 	if !checkpoint.AuthDone {
 		var result any
 		err := s.client.callProviderRaw(ctx, authOwnerCell, providerAuthSourceAdminImport, bridgeAuthSourceCredentialImportRequest{
-			Version: "bananapulse.auth/v1", RequestID: request.RequestID + "/credential",
+			Version: "credential-registry/v1", RequestID: request.RequestID + "/credential",
 			CredentialID: request.CredentialID, SourceID: request.Source.ID, Token: request.Token,
 			ActorID: request.ActorID, CreatedAt: request.CreatedAt, ExpiresAt: request.ExpiresAt,
 		}, &result)
@@ -150,7 +150,7 @@ func (s *sourceLifecycleService) Create(ctx context.Context, request sourceAdmin
 }
 
 func (s *sourceLifecycleService) Rotate(ctx context.Context, request bridgeAuthSourceCredentialRotateRequest) (any, error) {
-	if request.Version != "bananapulse.auth/v1" || request.RequestID == "" ||
+	if request.Version != "credential-registry/v1" || request.RequestID == "" ||
 		request.CredentialID == "" || request.SourceID == "" || request.Token == "" {
 		return nil, &bridgeRequestError{message: "invalid source rotate request"}
 	}
@@ -195,7 +195,7 @@ func (s *sourceLifecycleService) Revoke(ctx context.Context, request sourceAdmin
 	if !checkpoint.AuthDone {
 		var result any
 		err := s.client.callProviderRaw(ctx, authOwnerCell, providerAuthSourceAdminRevoke, bridgeAuthSourceCredentialRevokeRequest{
-			Version: "bananapulse.auth/v1", RequestID: request.RequestID + "/credential",
+			Version: "credential-registry/v1", RequestID: request.RequestID + "/credential",
 			CredentialID: request.CredentialID, SourceID: request.SourceID,
 			ActorID: request.ActorID, RevokedAt: request.RevokedAt,
 		}, &result)
@@ -216,7 +216,7 @@ func (s *sourceLifecycleService) Revoke(ctx context.Context, request sourceAdmin
 func (s *sourceLifecycleService) compensateCreate(ctx context.Context, request sourceAdminCreateRequest) error {
 	var result any
 	err := s.client.callProviderRaw(ctx, authOwnerCell, providerAuthSourceAdminRevoke, bridgeAuthSourceCredentialRevokeRequest{
-		Version: "bananapulse.auth/v1", RequestID: request.RequestID + "/compensate",
+		Version: "credential-registry/v1", RequestID: request.RequestID + "/compensate",
 		CredentialID: request.CredentialID, SourceID: request.Source.ID,
 		ActorID: request.ActorID, RevokedAt: request.CreatedAt,
 	}, &result)

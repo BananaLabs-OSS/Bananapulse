@@ -26,7 +26,7 @@ import (
 
 const (
 	ownerParityAdminEmail  = "owner-parity-admin@example.test"
-	ownerParityAuthVersion = "bananapulse.auth/v1"
+	ownerParityAuthVersion = "credential-registry/v1"
 )
 
 // TestOwnerParityAstroNodeToPulpOwners is the local, Docker-free equivalent of

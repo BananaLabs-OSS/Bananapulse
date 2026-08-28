@@ -304,7 +304,7 @@ func (verifier *bananapulseLegacyImportVerifier) VerifyLegacyImport(ctx context.
 	}
 	var auth legacyAuthInvariantProjection
 	if err := verifier.client.callProviderRaw(ctx, authOwnerCell, providerAuthProjection, bridgeAuthProjectionRequest{
-		Version: "bananapulse.auth/v1", At: verifier.at,
+		Version: "credential-registry/v1", At: verifier.at,
 	}, &auth); err != nil {
 		return fmt.Errorf("verify auth projection: %w", err)
 	}

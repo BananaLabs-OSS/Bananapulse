@@ -6,7 +6,7 @@ import (
 	"fmt"
 )
 
-const subscriberContractVersion = "bananapulse.subscribers/v1"
+const subscriberContractVersion = "subscription-outbox/v1"
 
 type emailSender interface {
 	// Send is a privileged host effect. Implementations must pass the stable
