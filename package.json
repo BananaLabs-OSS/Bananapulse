@@ -21,8 +21,8 @@
     "@astrojs/netlify": "^8.2.4",
     "@astrojs/node": "^11.1.4",
     "astro": "^7.2.9",
-    "drizzle-orm": "^0.44.0",
-    "nanoid": "^5.1.0",
+    "drizzle-orm": "^0.45.2",
+    "nanoid": "^5.1.16",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
