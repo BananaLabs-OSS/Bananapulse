@@ -178,7 +178,12 @@ interface Tree {
   maintenance: MaintRow[];
 }
 
-async function loadTree(): Promise<Tree> {
+const TREE_FRESH_MS = 10_000;
+const TREE_STALE_MS = 60_000;
+let treeSnapshot: { value: Tree; fetchedAt: number } | undefined;
+let treeRefresh: Promise<Tree> | undefined;
+
+async function fetchTree(): Promise<Tree> {
   const [rows, derived, incs, maints] = await Promise.all([
     db.select().from(components).where(isNull(components.archivedAt)).orderBy(asc(components.sortOrder)),
     derivedComponentStatuses(),
@@ -195,6 +200,31 @@ async function loadTree(): Promise<Tree> {
     kids.set(r.parentId, arr);
   }
   return { byId, kids, derived: derived as any, incidents: incs.filter((i) => i.status !== 'resolved'), maintenance: maints };
+}
+
+function refreshTree(): Promise<Tree> {
+  if (treeRefresh) return treeRefresh;
+  const request = fetchTree().then((value) => {
+    treeSnapshot = { value, fetchedAt: Date.now() };
+    return value;
+  });
+  treeRefresh = request;
+  void request.finally(() => {
+    if (treeRefresh === request) treeRefresh = undefined;
+  }).catch(() => {});
+  return request;
+}
+
+async function loadTree(): Promise<Tree> {
+  const snapshot = treeSnapshot;
+  if (!snapshot) return refreshTree();
+  const age = Date.now() - snapshot.fetchedAt;
+  if (age <= TREE_FRESH_MS) return snapshot.value;
+  if (age <= TREE_STALE_MS) {
+    void refreshTree().catch(() => {});
+    return snapshot.value;
+  }
+  return refreshTree();
 }
 
 // Automatic recurring maintenance advisory: shows Monday (heads-up) + all Tuesday
