@@ -1,0 +1,17 @@
+# syntax=docker/dockerfile:1.7
+
+# Immutable, buildable source artifact for downstream Bananapulse instances.
+# It deliberately contains no runtime secrets and performs no build: an
+# instance overlays its declared seam, then builds with its chosen adapter.
+FROM scratch
+
+ARG VERSION
+ARG REVISION
+LABEL org.opencontainers.image.title="Bananapulse source" \
+      org.opencontainers.image.description="Versioned Bananapulse engine source for downstream composition" \
+      org.opencontainers.image.source="https://github.com/BananaLabs-OSS/Bananapulse" \
+      org.opencontainers.image.version="$VERSION" \
+      org.opencontainers.image.revision="$REVISION" \
+      org.opencontainers.image.licenses="MIT"
+
+COPY . /opt/bananapulse
