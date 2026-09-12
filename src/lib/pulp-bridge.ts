@@ -2,6 +2,8 @@ import { createHash, createHmac } from 'node:crypto';
 
 const MONITOR_VERSION = 'monitor.v1';
 const SUBSCRIBER_VERSION = 'bananapulse.subscribers/v1';
+const MONITOR_PROJECTION_FRESH_MS = 10_000;
+const MONITOR_PROJECTION_STALE_MS = 60_000;
 
 export const PULP_EVENTS = {
   monitorCommand: 'bananapulse.monitor.command.v1',
@@ -165,6 +167,14 @@ export interface MonitorCommandResult {
   deduped: boolean;
 }
 
+interface MonitorProjectionSnapshot {
+  value: MonitorProjection;
+  fetchedAt: number;
+}
+
+let monitorProjectionSnapshot: MonitorProjectionSnapshot | undefined;
+let monitorProjectionRefresh: Promise<MonitorProjection> | undefined;
+
 export interface SubscriberCommandResult {
   version: typeof SUBSCRIBER_VERSION;
   subscriber_id?: string;
@@ -295,8 +305,39 @@ export async function callPulpEvent<Request, Response>(
   }
 }
 
+function refreshMonitorProjection(): Promise<MonitorProjection> {
+  if (monitorProjectionRefresh) return monitorProjectionRefresh;
+  const request = callPulpEvent<Record<string, never>, MonitorProjection>(PULP_EVENTS.monitorProjection, {})
+    .then((value) => {
+      monitorProjectionSnapshot = { value, fetchedAt: Date.now() };
+      return value;
+    });
+  monitorProjectionRefresh = request;
+  void request.finally(() => {
+    if (monitorProjectionRefresh === request) monitorProjectionRefresh = undefined;
+  }).catch(() => {});
+  return request;
+}
+
 export function getMonitorProjection(): Promise<MonitorProjection> {
-  return callPulpEvent<Record<string, never>, MonitorProjection>(PULP_EVENTS.monitorProjection, {});
+  const snapshot = monitorProjectionSnapshot;
+  if (!snapshot) return refreshMonitorProjection();
+
+  const age = Date.now() - snapshot.fetchedAt;
+  if (age <= MONITOR_PROJECTION_FRESH_MS) return Promise.resolve(snapshot.value);
+  if (age <= MONITOR_PROJECTION_STALE_MS) {
+    // Keep public rendering off the owner round trip while refreshing. The
+    // bounded stale window preserves the status system's fail-closed rule: once
+    // it expires, callers must wait for a verified owner response or return 503.
+    void refreshMonitorProjection().catch(() => {});
+    return Promise.resolve(snapshot.value);
+  }
+  return refreshMonitorProjection();
+}
+
+export function resetMonitorProjectionCacheForTests(): void {
+  monitorProjectionSnapshot = undefined;
+  monitorProjectionRefresh = undefined;
 }
 
 export function sendMonitorCommand(command: MonitorCommand): Promise<MonitorCommandResult> {
