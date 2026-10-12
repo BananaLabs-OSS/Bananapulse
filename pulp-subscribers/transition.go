@@ -319,6 +319,9 @@ func (o *Owner) applyTransition(ctx context.Context, request MonitorCommandResul
 			return TransitionApplyResult{}, fmt.Errorf("confirmed subscriber %q has no private unsubscribe token", recipient.id)
 		}
 	}
+	if err := queueDiscordTransitions(ctx, tx, request.Transitions, unsubscribeBaseURL); err != nil {
+		return TransitionApplyResult{}, err
+	}
 	for _, transition := range request.Transitions {
 		subject, template := transitionNotification(transition)
 		eventID := "monitor:" + request.CommandID + ":" + transition.ID

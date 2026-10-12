@@ -474,7 +474,14 @@ func (o *Owner) ClaimOutbox(ctx context.Context, request OutboxClaimRequest) (Ou
 	if request.Limit < 1 || request.Limit > 100 {
 		return OutboxClaim{}, errors.New("claim limit must be 1..100")
 	}
-	rows, err := o.store.db.QueryContext(ctx, `SELECT intent_id,kind,recipient,subject,body FROM subscriber_outbox WHERE status='pending' ORDER BY created_at,intent_id LIMIT ?`, request.Limit)
+	channel := request.Channel
+	if channel == "" {
+		channel = "email"
+	}
+	if channel != "email" && channel != "discord" {
+		return OutboxClaim{}, errors.New("unsupported delivery channel")
+	}
+	rows, err := o.store.db.QueryContext(ctx, `SELECT intent_id,kind,recipient,subject,body FROM subscriber_outbox WHERE status='pending' AND ((?='discord' AND kind LIKE 'discord.%') OR (?='email' AND kind NOT LIKE 'discord.%')) ORDER BY created_at,intent_id LIMIT ?`, channel, channel, request.Limit)
 	if err != nil {
 		return OutboxClaim{}, err
 	}

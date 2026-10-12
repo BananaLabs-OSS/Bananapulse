@@ -42,6 +42,8 @@ services:
     build:
       context: ..
       dockerfile: deployment/Dockerfile.astro-local
+      args:
+        SITE_URL: ${SITE_URL:-http://127.0.0.1:4321}
     depends_on:
       pulp-host:
         condition: service_healthy

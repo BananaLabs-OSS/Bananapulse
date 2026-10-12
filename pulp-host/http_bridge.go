@@ -28,6 +28,7 @@ type httpBridge struct {
 	token    string
 	families bridgeFamilies
 	sources  *sourceLifecycleService
+	discord  *discordDelivery
 }
 
 func newHTTPBridge(client *applicationClient, token string) (*httpBridge, error) {
@@ -103,6 +104,9 @@ func (b *httpBridge) authorized(r *http.Request) bool {
 }
 
 func (b *httpBridge) dispatchHTTP(ctx context.Context, event string, r *http.Request, w http.ResponseWriter) error {
+	if event == discordSettingsEvent || event == discordTestEvent {
+		return b.discordHTTP(ctx, event, r, w)
+	}
 	if event == eventHostSourceAdminCreate || event == eventHostSourceAdminRotate || event == eventHostSourceAdminRevoke {
 		if !b.families.sourceAdmin || b.sources == nil {
 			return disabledBridgeFamily()

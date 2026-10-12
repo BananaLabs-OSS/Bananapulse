@@ -263,6 +263,7 @@ type TransitionApplyResult struct {
 }
 
 type OutboxClaimRequest struct {
+	Channel  string `msgpack:"channel,omitempty" json:"channel,omitempty"`
 	Version  string `msgpack:"version" json:"version"`
 	WorkerID string `msgpack:"worker_id" json:"worker_id"`
 	Limit    int    `msgpack:"limit" json:"limit"`

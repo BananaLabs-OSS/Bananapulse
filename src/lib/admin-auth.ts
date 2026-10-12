@@ -11,7 +11,7 @@ import {
 const MAGIC_LINK_TTL_MS = 15 * 60 * 1000;
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const COOKIE_NAME = 'status_admin_session';
-const AUTH_VERSION = 'bananapulse.auth/v1';
+const AUTH_VERSION = 'credential-registry/v1';
 
 // Auth commands deliberately bypass Lua: plaintext credentials only traverse
 // the private web host -> authenticated Pulp bridge -> auth owner path.

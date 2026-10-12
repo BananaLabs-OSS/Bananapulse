@@ -30,6 +30,7 @@ type emailIntent struct {
 }
 
 type outboxClaimRequest struct {
+	Channel  string `msgpack:"channel,omitempty" json:"channel,omitempty"`
 	Version  string `msgpack:"version" json:"version"`
 	WorkerID string `msgpack:"worker_id" json:"worker_id"`
 	Limit    int    `msgpack:"limit" json:"limit"`
@@ -59,8 +60,9 @@ type drainResult struct {
 }
 
 type emailOutboxWorker struct {
-	client *applicationClient
-	sender emailSender
+	channel string
+	client  *applicationClient
+	sender  emailSender
 }
 
 func newEmailOutboxWorker(client *applicationClient, sender emailSender) (*emailOutboxWorker, error) {
@@ -77,7 +79,7 @@ func newEmailOutboxWorker(client *applicationClient, sender emailSender) (*email
 // Every attempted host effect is settled back to that owner as a durable
 // receipt before the worker moves to the next intent.
 func (w *emailOutboxWorker) DrainOnce(ctx context.Context, workerID string, limit int) (drainResult, error) {
-	request := outboxClaimRequest{Version: subscriberContractVersion, WorkerID: workerID, Limit: limit}
+	request := outboxClaimRequest{Channel: w.channel, Version: subscriberContractVersion, WorkerID: workerID, Limit: limit}
 	var claim outboxClaim
 	if err := w.client.callRaw(ctx, eventEmailOutboxClaim, request, &claim); err != nil {
 		return drainResult{}, err

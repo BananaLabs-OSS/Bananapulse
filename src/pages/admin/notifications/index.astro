@@ -1,0 +1,75 @@
+---
+import AdminShell from '@/layouts/AdminShell.astro';
+import { navCounts, propertyOptions } from '@/lib/admin/nav';
+const counts = await navCounts();
+const properties = await propertyOptions();
+const adminEmail = (Astro.locals as App.Locals).adminEmail ?? 'admin';
+Astro.response.headers.set('Cache-Control', 'no-store');
+---
+<AdminShell title="Notifications" active="notifications" adminEmail={adminEmail} counts={counts} properties={properties}>
+  <div class="seclbl">Discord</div>
+  <form class="form" id="discord-form">
+    <p class="note">Send outage and recovery alerts to one Discord channel for this status site. Messages link to incidents and omit monitoring addresses.</p>
+    <p id="webhook-state" class="note">Loading settings…</p>
+    <div class="fld">
+      <label for="webhook-url">Webhook URL</label>
+      <input id="webhook-url" name="webhookUrl" type="password" autocomplete="new-password" spellcheck="false" placeholder="https://discord.com/api/webhooks/…" maxlength="512" />
+      <p class="note">Leave blank to keep the saved webhook. The saved URL is never returned to your browser.</p>
+    </div>
+    <label><input type="checkbox" id="discord-enabled" /> Enable Discord alerts</label>
+    <label><input type="checkbox" id="discord-outages" checked /> Outage started</label>
+    <label><input type="checkbox" id="discord-recoveries" checked /> Service recovered</label>
+    <label><input type="checkbox" id="discord-remove" /> Remove saved webhook and disable alerts</label>
+    <div style="display:flex;gap:12px;margin-top:16px">
+      <button type="submit" class="btn pri" disabled>Save</button>
+      <button type="button" class="btn" id="discord-test" disabled>Send test</button>
+    </div>
+    <p id="discord-result" class="note" role="status" aria-live="polite"></p>
+  </form>
+</AdminShell>
+<script>
+const form = document.querySelector<HTMLFormElement>('#discord-form')!;
+const state = document.querySelector<HTMLElement>('#webhook-state')!;
+const result = document.querySelector<HTMLElement>('#discord-result')!;
+const webhook = document.querySelector<HTMLInputElement>('#webhook-url')!;
+const enabled = document.querySelector<HTMLInputElement>('#discord-enabled')!;
+const outages = document.querySelector<HTMLInputElement>('#discord-outages')!;
+const recoveries = document.querySelector<HTMLInputElement>('#discord-recoveries')!;
+const remove = document.querySelector<HTMLInputElement>('#discord-remove')!;
+const test = document.querySelector<HTMLButtonElement>('#discord-test')!;
+let configured = false;
+async function request(body?: object) {
+  const response = await fetch('/api/v1/admin/discord', body ? {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  } : { cache: 'no-store' });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error?.message ?? 'Request failed.');
+  return data.data;
+}
+function apply(data: { configured: boolean; enabled: boolean; outages: boolean; recoveries: boolean }) {
+  configured = data.configured;
+  state.textContent = configured ? 'Saved webhook: ••••••••' : 'No webhook saved.';
+  enabled.checked = data.enabled; outages.checked = data.outages; recoveries.checked = data.recoveries;
+  webhook.value = ''; remove.checked = false;
+}
+function busy(value: boolean) {
+  form.querySelectorAll<HTMLButtonElement>('button').forEach((button) => { button.disabled = value; });
+  if (!value) test.disabled = !configured;
+}
+request().then((data) => { apply(data); busy(false); }).catch((error) => { state.textContent = error.message; });
+form.addEventListener('submit', async (event) => {
+  event.preventDefault(); busy(true); result.textContent = 'Saving…';
+  try {
+    apply(await request({ action: 'save', webhookUrl: webhook.value, enabled: enabled.checked,
+      outages: outages.checked, recoveries: recoveries.checked, remove: remove.checked }));
+    result.textContent = 'Saved.';
+  } catch (error) { result.textContent = error instanceof Error ? error.message : 'Save failed.'; }
+  finally { busy(false); }
+});
+test.addEventListener('click', async () => {
+  busy(true); result.textContent = 'Sending test to the saved webhook…';
+  try { await request({ action: 'test' }); result.textContent = 'Test delivered to Discord.'; }
+  catch (error) { result.textContent = error instanceof Error ? error.message : 'Test failed.'; }
+  finally { busy(false); }
+});
+</script>

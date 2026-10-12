@@ -106,12 +106,14 @@ func (o *bridgeProviderObserver) BeforeApplicationShutdown(context.Context, run.
 }
 
 type runningBridge struct {
-	runtime      run.ApplicationRuntime
-	server       *http.Server
-	listener     net.Listener
-	outboxWorker *outboxService
-	sourceSagaDB *sql.DB
-	serveErr     chan error
+	runtime       run.ApplicationRuntime
+	server        *http.Server
+	listener      net.Listener
+	outboxWorker  *outboxService
+	discordWorker *outboxService
+	discord       *discordDelivery
+	sourceSagaDB  *sql.DB
+	serveErr      chan error
 }
 
 func startBridge(ctx context.Context, config bridgeConfig) (*runningBridge, error) {
@@ -216,10 +218,35 @@ func startBridge(ctx context.Context, config bridgeConfig) (*runningBridge, erro
 			return nil, fmt.Errorf("start Bananapulse email outbox worker: %w", err)
 		}
 	}
+	var discord *discordDelivery
+	var discordWorker *outboxService
+	if config.Families.authAdmin && config.Token != "" {
+		discord, err = newDiscordDelivery(config.StorageRoot, client)
+		if err == nil {
+			bridge.discord = discord
+			workerConfig := outboxServiceConfigFromEnv()
+			workerConfig.Channel = "discord"
+			workerConfig.WorkerID += "-discord"
+			discordWorker, err = startOutboxService(client, discord, workerConfig)
+		}
+		if err != nil {
+			if discord != nil {
+				discord.db.Close()
+			}
+			_ = outboxWorker.shutdown(ctx)
+			closeBridgeDB(sourceSagaDB)
+			shutdownRuntime()
+			return nil, fmt.Errorf("configure Discord delivery: %w", err)
+		}
+	}
 	listener, err := net.Listen("tcp", config.Address)
 	if err != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+		_ = discordWorker.shutdown(shutdownCtx)
+		if discord != nil {
+			discord.db.Close()
+		}
 		_ = outboxWorker.shutdown(shutdownCtx)
 		closeBridgeDB(sourceSagaDB)
 		shutdownRuntime()
@@ -231,8 +258,8 @@ func startBridge(ctx context.Context, config bridgeConfig) (*runningBridge, erro
 	}
 	running := &runningBridge{
 		runtime: runtime, server: server, listener: listener, outboxWorker: outboxWorker,
-		sourceSagaDB: sourceSagaDB,
-		serveErr:     make(chan error, 1),
+		sourceSagaDB: sourceSagaDB, discord: discord, discordWorker: discordWorker,
+		serveErr: make(chan error, 1),
 	}
 	go func() {
 		err := server.Serve(listener)
@@ -274,6 +301,14 @@ func (b *runningBridge) shutdown(ctx context.Context) error {
 	}
 	if err := b.outboxWorker.shutdown(ctx); err != nil && result == nil {
 		result = err
+	}
+	if err := b.discordWorker.shutdown(ctx); err != nil && result == nil {
+		result = err
+	}
+	if b.discord != nil {
+		if err := b.discord.db.Close(); err != nil && result == nil {
+			result = err
+		}
 	}
 	if b.sourceSagaDB != nil {
 		if err := b.sourceSagaDB.Close(); err != nil && result == nil {

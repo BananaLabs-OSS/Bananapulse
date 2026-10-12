@@ -30,9 +30,9 @@ func bootstrap(_ []byte) error {
 				FnSubscribe, FnConfirm, FnUnsubscribe, FnConfirmationResend,
 				FnNotifyIncident, FnNotifyMaintenance, FnAdminDelete,
 				FnAdminStateSet, FnMigrationImport, FnOutboxReceiptApply,
-				FnDeliveryConfigSet, FnTransitionApply,
+				FnDeliveryConfigSet, FnTransitionApply, FnDiscordConfigSet,
 			},
-			Queries:   []string{FnProjection, FnAdminList, FnAdminGet, FnOutboxClaim},
+			Queries:   []string{FnProjection, FnAdminList, FnAdminGet, FnOutboxClaim, FnDiscordConfigGet},
 			OutboxABI: "subscription-outbox.outbox/v1",
 		})
 	})
@@ -73,6 +73,14 @@ func bootstrap(_ []byte) error {
 	pulp.Provide(FnDeliveryConfigSet, provide(func(v DeliveryConfigSetRequest) (DeliveryConfigSetResult, error) {
 		return owner.SetDeliveryConfig(context.Background(), v)
 	}))
+	pulp.Provide(FnDiscordConfigGet, func([]byte) ([]byte, error) {
+		c, err := owner.DiscordConfig(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		return msgpack.Marshal(c)
+	})
+	pulp.Provide(FnDiscordConfigSet, provide(func(v DiscordConfig) (DiscordConfig, error) { return owner.SetDiscordConfig(context.Background(), v) }))
 	pulp.Provide(FnTransitionApply, func(raw []byte) ([]byte, error) {
 		result, err := owner.ApplyTransitionRaw(context.Background(), raw)
 		if err != nil {

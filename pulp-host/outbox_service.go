@@ -17,6 +17,7 @@ const (
 )
 
 type outboxServiceConfig struct {
+	Channel  string
 	WorkerID string
 	Interval time.Duration
 	Limit    int
@@ -51,6 +52,7 @@ func startOutboxService(client *applicationClient, sender emailSender, config ou
 	if err != nil {
 		return nil, err
 	}
+	worker.channel = config.Channel
 	ctx, cancel := context.WithCancel(context.Background())
 	service := &outboxService{cancel: cancel, done: make(chan struct{})}
 	go func() {

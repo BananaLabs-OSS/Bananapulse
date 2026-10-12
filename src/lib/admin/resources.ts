@@ -220,6 +220,10 @@ export const RESOURCES: ResourceDecl[] = [
     actions: { delete: true },
   },
   {
+    key: 'notifications', label: 'Notification', labelPlural: 'Notifications', icon: '◎',
+    blurb: 'Discord outage and recovery notifications.', listColumns: [], fields: [], actions: { edit: true },
+  },
+  {
     key: 'settings',
     label: 'Settings',
     labelPlural: 'Settings',

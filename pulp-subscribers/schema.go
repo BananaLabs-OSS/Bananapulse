@@ -26,6 +26,7 @@ func migrate(ctx context.Context, db schemaExecutor) error {
 		`CREATE TABLE IF NOT EXISTS subscriber_outbox (intent_id TEXT PRIMARY KEY, subscriber_id TEXT NOT NULL, event_id TEXT NOT NULL, kind TEXT NOT NULL, recipient TEXT NOT NULL, subject TEXT NOT NULL, body TEXT NOT NULL, status TEXT NOT NULL, created_at INTEGER NOT NULL, UNIQUE(subscriber_id, event_id, kind))`,
 		`CREATE TABLE IF NOT EXISTS subscriber_outbox_receipts (intent_id TEXT PRIMARY KEY, receipt BLOB NOT NULL, recorded_at INTEGER NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS subscriber_migration_receipts (request_id TEXT PRIMARY KEY, payload_hash TEXT NOT NULL, response BLOB NOT NULL, recorded_at INTEGER NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS discord_delivery_config (config_key TEXT PRIMARY KEY, enabled INTEGER NOT NULL, outages INTEGER NOT NULL, recoveries INTEGER NOT NULL)`,
 		`CREATE INDEX IF NOT EXISTS subscriber_outbox_pending ON subscriber_outbox(status, created_at)`,
 	} {
 		if _, err := db.ExecContext(ctx, statement); err != nil {

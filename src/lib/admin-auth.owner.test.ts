@@ -27,7 +27,7 @@ beforeEach(() => vi.clearAllMocks());
 describe('pulp-auth private host contracts', () => {
   it('issues a 15-minute link and honors the anti-enumeration delivery decision', async () => {
     bridge.callPulpEvent.mockResolvedValue({
-      version: 'bananapulse.auth/v1',
+      version: 'credential-registry/v1',
       accepted: true,
       deliver: false,
     });
@@ -39,7 +39,7 @@ describe('pulp-auth private host contracts', () => {
     expect(bridge.callPulpEvent).toHaveBeenCalledWith(
       'bananapulse.host.auth.magic-link.issue.v1',
       expect.objectContaining({
-        version: 'bananapulse.auth/v1',
+        version: 'credential-registry/v1',
         email: 'admin@example.test',
         token: issued.token,
       }),
@@ -50,7 +50,7 @@ describe('pulp-auth private host contracts', () => {
 
   it('treats an invalid magic link as a normal unauthenticated result', async () => {
     bridge.callPulpEvent.mockResolvedValue({
-      version: 'bananapulse.auth/v1',
+      version: 'credential-registry/v1',
       authenticated: false,
     });
     await expect(consumeMagicLinkWithOwner('opaque-link-token')).resolves.toBeNull();
@@ -62,7 +62,7 @@ describe('pulp-auth private host contracts', () => {
 
   it('creates a seven-day owner session while retaining the opaque cookie token locally', async () => {
     bridge.callPulpEvent.mockResolvedValue({
-      version: 'bananapulse.auth/v1',
+      version: 'credential-registry/v1',
       session_id: 'session_owner_id',
       created: true,
     });
@@ -76,8 +76,8 @@ describe('pulp-auth private host contracts', () => {
 
   it('uses owner session validation and revocation events only', async () => {
     bridge.callPulpEvent
-      .mockResolvedValueOnce({ version: 'bananapulse.auth/v1', valid: true, email: 'admin@example.test' })
-      .mockResolvedValueOnce({ version: 'bananapulse.auth/v1', revoked: true });
+      .mockResolvedValueOnce({ version: 'credential-registry/v1', valid: true, email: 'admin@example.test' })
+      .mockResolvedValueOnce({ version: 'credential-registry/v1', revoked: true });
 
     await expect(validateSessionWithOwner('session-token')).resolves.toBe('admin@example.test');
     await expect(destroySessionWithOwner('session-token')).resolves.toBeUndefined();
