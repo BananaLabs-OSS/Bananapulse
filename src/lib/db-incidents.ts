@@ -16,6 +16,7 @@ function mapDbIncident(row: typeof incidents.$inferSelect, timeline: TimelineEnt
   return {
     id: row.id,
     title: row.title,
+    summary: row.summary,
     severity: row.severity as IncidentSeverity,
     status: row.status as IncidentStatus,
     product,

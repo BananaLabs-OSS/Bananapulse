@@ -62,14 +62,17 @@ const crumbs = [{ label: brandForScope(scope).wordmark, href: '/' }, { label: 'H
     <>
       <div class="seclbl">Past incidents</div>
       {incidents.map((i) => {
-        const col = i.status === 'resolved' ? 'var(--ok)' : severityColor(i.severity);
+        const col = severityColor(i.severity);
         return (
           <a class="row" href={`/incident/${i.id}`} style={`--leg:${col}`}>
             <div>
               <div class="nm">{i.title}</div>
               <div class="kd">{i.id} · {incidentStatusLabel(i.status).toLowerCase()} · {formatDate(i.started)}</div>
             </div>
-            <span class="st" style={`color:${col}`}>{severityLabel(i.severity)}</span>
+            <span class="st" style={`color:${col}`}>
+              {severityLabel(i.severity)}
+              <small style={`display:block;font-size:11px;margin-top:4px;color:${i.status === 'resolved' ? 'var(--ok)' : col}`}>{incidentStatusLabel(i.status)}</small>
+            </span>
             <span class="chev">›</span>
           </a>
         );

@@ -29,9 +29,12 @@ const manual = incident.auto === false;
   <div class="tags">
     <span>{incident.id}</span>
     <span>{incidentStatusLabel(incident.status).toLowerCase()}</span>
-    <span>since {startLabel} UTC</span>
+    <span>started {startLabel} UTC</span>
+    {incident.resolved && <span>resolved {formatDate(incident.resolved)} {formatTime(incident.resolved)} UTC · {Math.round((Date.parse(incident.resolved) - Date.parse(incident.started)) / 1000)} seconds</span>}
     <span style={`color:${manual ? 'var(--ac)' : 'var(--muted)'}`}>{manual ? 'reported manually' : 'detected automatically'}</span>
   </div>
+
+  {incident.summary && <p style="margin:12px 0;line-height:1.6">{incident.summary}</p>}
 
   <div class="affected">
     affected&nbsp;&nbsp;

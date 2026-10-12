@@ -364,6 +364,7 @@ function ownerIncident(
   return {
     id: incident.id,
     title: incident.title,
+    summary: incident.summary,
     severity: incident.severity as IncidentSeverity,
     status: incident.status as IncidentStatus,
     product: firstAffected ? productFor(byId, firstAffected) : rootComponentId(null),

@@ -1,6 +1,7 @@
 ---
 /**
- * Standalone incident detail (/incident/{id}). Crumbs come from the component
+ * Standalone incident detail (/incident/{id}). The rest parameter preserves
+ * slash-delimited automatic incident IDs. Crumbs come from the component
  * tree (the node the incident is attached to); a tappable breadcrumb climbs
  * back up any level. A missing incident renders a styled not-found.
  */
@@ -27,8 +28,8 @@ try {
   const projection = ownerSelected ? await getMonitorProjection() : undefined;
   incident = id
     ? projection
-      ? buildPulpIncident(projection, id)
-      : await getIncident(id)
+      ? buildPulpIncident(projection, decodeURIComponent(id))
+      : await getIncident(decodeURIComponent(id))
     : undefined;
   if (incident) {
     const leaf = (incident.affects ?? [])[0];

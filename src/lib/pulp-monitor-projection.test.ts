@@ -188,6 +188,7 @@ describe('Pulp monitor public projection adapter', () => {
     });
 
     expect(buildPulpIncident(value, 'incident-1')).toMatchObject({
+      summary: 'Investigating',
       id: 'incident-1',
       product: 'product',
       timeline: [{ status: 'identified', body: 'Cause found' }],

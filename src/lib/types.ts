@@ -23,6 +23,7 @@ export interface TimelineEntry {
 export interface Incident {
   id: string;
   title: string;
+  summary?: string;
   severity: IncidentSeverity;
   status: IncidentStatus;
   product: string;
