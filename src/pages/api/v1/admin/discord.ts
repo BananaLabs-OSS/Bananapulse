@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro';
 import { requireAdmin, ok, err } from '@/lib/admin-api';
-import { callPulpEvent, pulpBridgeConfigured } from '@/lib/pulp-bridge';
+import { callPulpEvent, pulpBridgeConfigured, PulpBridgeError } from '@/lib/pulp-bridge';
 
 const SETTINGS = 'bananapulse.host.discord.settings.v1';
 const TEST = 'bananapulse.host.discord.test.v1';
@@ -47,7 +47,19 @@ const post: APIRoute = async (ctx) => {
       outages: body.outages, recoveries: body.recoveries, remove: body.remove,
     };
     return privateResponse(ok(await callPulpEvent(body.action === 'test' ? TEST : SETTINGS, request)));
-  } catch {
+  } catch (error) {
+    if (error instanceof PulpBridgeError && error.status === 400) {
+      let reason = '';
+      try { reason = JSON.parse(error.detail).error; } catch {}
+      const messages: Record<string, string> = {
+        'use a Discord HTTPS webhook URL from discord.com': 'Paste the full URL from Discord: Channel Settings → Integrations → Webhooks → Copy Webhook URL.',
+        'save a webhook before enabling notifications': 'Paste a Discord webhook URL before enabling alerts.',
+      };
+      const message = messages[reason] ?? 'The notification host rejected these settings. Check the webhook URL and try again.';
+      console.info(JSON.stringify({ event: 'discord.save.rejected', upstreamStatus: 400, reason: reason in messages ? reason : 'validation' }));
+      return privateResponse(err('bad_request', message, 400));
+    }
+    console.info(JSON.stringify({ event: 'discord.host.failure', upstreamStatus: error instanceof PulpBridgeError ? error.status : 0 }));
     return privateResponse(err('discord_failed', body.action === 'test'
       ? 'Test failed. Check the saved webhook and try again.'
       : 'Could not save. Use a Discord HTTPS webhook URL and check host availability.', 502));

@@ -4,7 +4,8 @@ vi.mock('@/lib/admin-api', () => ({ requireAdmin: mocks.auth,
   ok: (data: unknown) => new Response(JSON.stringify({ data })),
   err: (code: string, message: string, status: number) => new Response(JSON.stringify({ error: { code, message } }), { status }),
 }));
-vi.mock('@/lib/pulp-bridge', () => ({ callPulpEvent: mocks.call, pulpBridgeConfigured: mocks.configured }));
+vi.mock('@/lib/pulp-bridge', async (importOriginal) => ({ ...(await importOriginal<any>()), callPulpEvent: mocks.call, pulpBridgeConfigured: mocks.configured }));
+import { PulpBridgeError } from '@/lib/pulp-bridge';
 import { GET, POST } from './discord';
 const url = new URL('https://status.example.test/api/v1/admin/discord');
 function ctx(body?: object, origin = url.origin): any {
@@ -55,4 +56,17 @@ it('accepts only bounded diagnostic metadata after authentication', async () => 
   expect((await POST(ctx({ action: 'diagnostic', operation: 'load', status: 502, requestId: 'private-url', ray: '' }))).status).toBe(400);
   expect(mocks.call).not.toHaveBeenCalled();
   log.mockRestore();
+});
+
+it('returns actionable validation errors instead of misclassifying them as a gateway outage', async () => {
+  mocks.call.mockRejectedValue(new PulpBridgeError('Rejected', 400, JSON.stringify({ error: 'save a webhook before enabling notifications' })));
+  const response = await POST(ctx({ action: 'save', webhookUrl: '', enabled: true, outages: true, recoveries: true, remove: false }));
+  expect(response.status).toBe(400);
+  expect(await response.text()).toContain('Paste a Discord webhook URL before enabling alerts');
+});
+it('does not return arbitrary private validation payloads', async () => {
+  mocks.call.mockRejectedValue(new PulpBridgeError('Rejected', 400, JSON.stringify({ error: 'private-webhook-secret' })));
+  const response = await POST(ctx({ action: 'test' }));
+  expect(response.status).toBe(400);
+  expect(await response.text()).not.toContain('private-webhook-secret');
 });
