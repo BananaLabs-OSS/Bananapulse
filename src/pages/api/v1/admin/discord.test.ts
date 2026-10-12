@@ -70,3 +70,16 @@ it('does not return arbitrary private validation payloads', async () => {
   expect(response.status).toBe(400);
   expect(await response.text()).not.toContain('private-webhook-secret');
 });
+
+it('canonicalizes copied legacy Discord webhook URLs before host validation', async () => {
+  mocks.call.mockResolvedValue({ configured: true, enabled: true });
+  await POST(ctx({ action: 'save', webhookUrl: 'https://discordapp.com/api/webhooks/123456789012345678/fake_test_token_long_enough', enabled: true, outages: true, recoveries: true, remove: false }));
+  expect(mocks.call.mock.calls[0][1].webhookUrl).toBe('https://discord.com/api/webhooks/123456789012345678/fake_test_token_long_enough');
+});
+it('keeps deceptive hostnames and credential-bearing URLs for host rejection', async () => {
+  mocks.call.mockResolvedValue({});
+  for (const webhookUrl of ['https://discordapp.com.attacker.example/api/webhooks/1/token', 'https://user@discordapp.com/api/webhooks/1/token']) {
+    await POST(ctx({ action: 'save', webhookUrl, enabled: false, outages: true, recoveries: true, remove: false }));
+    expect(mocks.call.mock.calls.at(-1)![1].webhookUrl).toBe(webhookUrl);
+  }
+});

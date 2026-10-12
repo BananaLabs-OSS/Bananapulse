@@ -4,6 +4,19 @@ import { callPulpEvent, pulpBridgeConfigured, PulpBridgeError } from '@/lib/pulp
 
 const SETTINGS = 'bananapulse.host.discord.settings.v1';
 const TEST = 'bananapulse.host.discord.test.v1';
+// Accept copied Discord URLs on the legacy hostname; the host still validates
+// the full canonical URL before storing it or making any outbound request.
+function canonicalWebhook(value: string): string {
+  const trimmed = value.trim();
+  try {
+    const url = new URL(trimmed);
+    if (url.protocol === 'https:' && url.host === 'discordapp.com' && !url.username && !url.password) {
+      url.hostname = 'discord.com';
+      return url.toString();
+    }
+  } catch {}
+  return trimmed;
+}
 function privateResponse(response: Response): Response {
   response.headers.set('Cache-Control', 'no-store');
   return response;
@@ -43,7 +56,7 @@ const post: APIRoute = async (ctx) => {
   )) return privateResponse(err('bad_request', 'Invalid notification settings.', 400));
   try {
     const request = body.action === 'test' ? {} : {
-      action: 'save', webhookUrl: body.webhookUrl.trim(), enabled: body.enabled,
+      action: 'save', webhookUrl: canonicalWebhook(body.webhookUrl), enabled: body.enabled,
       outages: body.outages, recoveries: body.recoveries, remove: body.remove,
     };
     return privateResponse(ok(await callPulpEvent(body.action === 'test' ? TEST : SETTINGS, request)));
