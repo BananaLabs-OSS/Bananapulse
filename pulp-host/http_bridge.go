@@ -29,6 +29,7 @@ type httpBridge struct {
 	families bridgeFamilies
 	sources  *sourceLifecycleService
 	discord  *discordDelivery
+	smtp     *smtpSender
 }
 
 func newHTTPBridge(client *applicationClient, token string) (*httpBridge, error) {
@@ -104,6 +105,9 @@ func (b *httpBridge) authorized(r *http.Request) bool {
 }
 
 func (b *httpBridge) dispatchHTTP(ctx context.Context, event string, r *http.Request, w http.ResponseWriter) error {
+	if event == eventHostSMTPEmail {
+		return b.smtpHTTP(ctx, r, w)
+	}
 	if event == discordSettingsEvent || event == discordTestEvent {
 		return b.discordHTTP(ctx, event, r, w)
 	}

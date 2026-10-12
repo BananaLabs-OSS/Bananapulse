@@ -3,6 +3,7 @@
 // Generic transactional email styling.
 
 import { COMPANY, SITE_TITLE, STATUS_DOMAIN } from '@/pulse.config';
+import { callPulpEvent } from './pulp-bridge';
 
 function confirmationHtml(confirmUrl: string): string {
   return `<!DOCTYPE html>
@@ -37,6 +38,10 @@ function confirmationHtml(confirmUrl: string): string {
 }
 
 export async function sendConfirmationEmail(to: string, confirmUrl: string) {
+  if (process.env.EMAIL_TRANSPORT === 'smtp') {
+    await sendSMTP(to, `Confirm your ${SITE_TITLE} subscription`, `Confirm your subscription to ${COMPANY}:\n\n${confirmUrl}\n\nIf you did not request this, ignore this email.`);
+    return;
+  }
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error('RESEND_API_KEY not set');
 
@@ -97,6 +102,10 @@ function magicLinkHtml(magicUrl: string): string {
 }
 
 export async function sendMagicLinkEmail(to: string, magicUrl: string) {
+  if (process.env.EMAIL_TRANSPORT === 'smtp') {
+    await sendSMTP(to, 'Your admin login link', `Sign in to ${SITE_TITLE}:\n\n${magicUrl}\n\nThis one-use link expires in 15 minutes. If you did not request this, ignore this email.`);
+    return;
+  }
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error('RESEND_API_KEY not set');
 
@@ -130,6 +139,7 @@ export async function sendMagicLinkEmail(to: string, magicUrl: string) {
  * caller supplies the rendered subject/text/html.
  */
 export async function sendIncidentEmail(to: string, subject: string, text: string, html: string) {
+  if (process.env.EMAIL_TRANSPORT === 'smtp') { await sendSMTP(to, subject, text); return; }
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) throw new Error('RESEND_API_KEY not set');
 
@@ -155,4 +165,9 @@ export async function sendIncidentEmail(to: string, subject: string, text: strin
     const body = await res.text();
     throw new Error(`Resend send failed: ${res.status} ${body}`);
   }
+}
+
+async function sendSMTP(to: string, subject: string, text: string): Promise<void> {
+  const result = await callPulpEvent<object, { accepted: boolean }>('bananapulse.host.email.smtp.send.v1', { to, subject, text });
+  if (result.accepted !== true) throw new Error('Internal SMTP did not accept the message.');
 }

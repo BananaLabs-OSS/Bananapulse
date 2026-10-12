@@ -1,0 +1,7 @@
+# Internal SMTP mail
+
+Set `EMAIL_TRANSPORT=smtp` on the frontend to deliver login/subscription/transactional email through the private Pulp host instead of Resend. The host requires `SMTP_HOST`, `SMTP_PORT` (default25), `SMTP_FROM`, and optionally `SMTP_FROM_NAME` and `SMTP_TLS_SERVER_NAME`. Enable the host auth family and supply the private bridge token. This transport does not automatically enable the existing background email outbox worker.
+
+STARTTLS is mandatory and uses TLS1.2 or newer. Standard public certificate/hostname verification is the default. For an internal self-signed mail server, mount its public certificate and set `SMTP_TLS_CERT_FILE`; the host then requires an exact leaf-certificate pin, matching server identity, and valid dates. The pin supports older CN-only internal certificates. Obtain the certificate through a trusted management connection, not from an unverified network handshake. Replace the pin when rotating that server certificate. There is no unchecked TLS mode.
+
+This implementation supports an existing IP-authorized internal relay. It does not add SMTP AUTH or change relay permissions. No SMTP credential is sent through Lua or returned to the browser. The private host selects the sender identity and rejects header injection; error responses omit recipients and message contents. SMTP acceptance means the relay queued the message, not proof of inbox delivery.

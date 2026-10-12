@@ -181,6 +181,11 @@ func startBridge(ctx context.Context, config bridgeConfig) (*runningBridge, erro
 		shutdownRuntime()
 		return nil, err
 	}
+	bridge.smtp, err = smtpSenderFromEnv()
+	if err != nil {
+		shutdownRuntime()
+		return nil, fmt.Errorf("configure SMTP delivery: %w", err)
+	}
 	var sourceSagaDB *sql.DB
 	if config.Families.sourceAdmin {
 		sourceSagaDB, err = sql.Open("sqlite", filepath.Join(config.StorageRoot, "pulp-host-source-sagas.sqlite"))
