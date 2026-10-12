@@ -28,7 +28,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
   </form>
 </AdminShell>
 <script>
-import { readAdminJSON } from '@/lib/admin-json';
+import { discordAdminRequest as request } from '@/lib/discord-admin-request';
 const form = document.querySelector<HTMLFormElement>('#discord-form')!;
 const state = document.querySelector<HTMLElement>('#webhook-state')!;
 const result = document.querySelector<HTMLElement>('#discord-result')!;
@@ -39,12 +39,6 @@ const recoveries = document.querySelector<HTMLInputElement>('#discord-recoveries
 const remove = document.querySelector<HTMLInputElement>('#discord-remove')!;
 const test = document.querySelector<HTMLButtonElement>('#discord-test')!;
 let configured = false;
-async function request(body?: object) {
-  const response = await fetch('/api/v1/admin/discord', body ? {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  } : { cache: 'no-store' });
-  return readAdminJSON(response);
-}
 function apply(data: { configured: boolean; enabled: boolean; outages: boolean; recoveries: boolean }) {
   configured = data.configured;
   state.textContent = configured ? 'Saved webhook: ••••••••' : 'No webhook saved.';

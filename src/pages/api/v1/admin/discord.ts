@@ -8,7 +8,7 @@ function privateResponse(response: Response): Response {
   response.headers.set('Cache-Control', 'no-store');
   return response;
 }
-export const GET: APIRoute = async (ctx) => {
+const get: APIRoute = async (ctx) => {
   let who;
   try { who = await requireAdmin(ctx); }
   catch { return privateResponse(err('unavailable', 'Sign-in verification is unavailable. Retry shortly.', 503)); }
@@ -17,7 +17,7 @@ export const GET: APIRoute = async (ctx) => {
   try { return privateResponse(ok(await callPulpEvent(SETTINGS, { action: 'get' }))); }
   catch { return privateResponse(err('unavailable', 'Discord settings are unavailable. Check that the host is updated and admin notifications are enabled.', 503)); }
 };
-export const POST: APIRoute = async (ctx) => {
+const post: APIRoute = async (ctx) => {
   let who;
   try { who = await requireAdmin(ctx); }
   catch { return privateResponse(err('unavailable', 'Sign-in verification is unavailable. Retry shortly.', 503)); }
@@ -27,6 +27,15 @@ export const POST: APIRoute = async (ctx) => {
   if (!ctx.request.headers.get('Content-Type')?.startsWith('application/json')) return privateResponse(err('bad_request', 'JSON required.', 400));
   if (!pulpBridgeConfigured()) return privateResponse(err('unavailable', 'Discord notifications require the Pulp notification host.', 503));
   const body = await ctx.request.json().catch(() => null);
+  if (body?.action === 'diagnostic') {
+    if (!['load', 'save', 'test'].includes(body.operation) || !Number.isInteger(body.status) || body.status < 0 || body.status > 599 ||
+        typeof body.requestId !== 'string' || !/^[a-f0-9-]{1,36}$/.test(body.requestId) ||
+        typeof body.ray !== 'string' || !/^[a-zA-Z0-9-]{0,64}$/.test(body.ray)) {
+      return privateResponse(err('bad_request', 'Invalid diagnostic.', 400));
+    }
+    console.info(JSON.stringify({ event: 'discord.browser.failure', operation: body.operation, status: body.status, requestId: body.requestId, ray: body.ray }));
+    return privateResponse(ok({ recorded: true }));
+  }
   if (!body || !['save', 'test'].includes(body.action)) return privateResponse(err('bad_request', 'Choose save or test.', 400));
   if (body.action === 'save' && (
     typeof body.webhookUrl !== 'string' || body.webhookUrl.length > 512 ||
@@ -44,3 +53,16 @@ export const POST: APIRoute = async (ctx) => {
       : 'Could not save. Use a Discord HTTPS webhook URL and check host availability.', 502));
   }
 };
+
+function traced(handler: APIRoute): APIRoute {
+  return async (ctx) => {
+    const supplied = ctx.request.headers.get('X-Pulse-Request-ID') ?? '';
+    const requestId = /^[a-f0-9-]{1,36}$/.test(supplied) ? supplied : 'unavailable';
+    const started = Date.now();
+    const response = await handler(ctx);
+    console.info(JSON.stringify({ event: 'discord.api.response', method: ctx.request.method, status: response.status, requestId, elapsedMs: Date.now() - started }));
+    return response;
+  };
+}
+export const GET = traced(get);
+export const POST = traced(post);

@@ -49,3 +49,10 @@ it('returns a private API error when authentication owner is unavailable', async
   }
   expect(mocks.call).not.toHaveBeenCalled();
 });
+it('accepts only bounded diagnostic metadata after authentication', async () => {
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  expect((await POST(ctx({ action: 'diagnostic', operation: 'load', status: 502, requestId: 'abc-123', ray: 'abc-XYZ' }))).status).toBe(200);
+  expect((await POST(ctx({ action: 'diagnostic', operation: 'load', status: 502, requestId: 'private-url', ray: '' }))).status).toBe(400);
+  expect(mocks.call).not.toHaveBeenCalled();
+  log.mockRestore();
+});
