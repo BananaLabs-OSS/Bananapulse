@@ -28,6 +28,7 @@ Astro.response.headers.set('Cache-Control', 'no-store');
   </form>
 </AdminShell>
 <script>
+import { readAdminJSON } from '@/lib/admin-json';
 const form = document.querySelector<HTMLFormElement>('#discord-form')!;
 const state = document.querySelector<HTMLElement>('#webhook-state')!;
 const result = document.querySelector<HTMLElement>('#discord-result')!;
@@ -42,9 +43,7 @@ async function request(body?: object) {
   const response = await fetch('/api/v1/admin/discord', body ? {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   } : { cache: 'no-store' });
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.error?.message ?? 'Request failed.');
-  return data.data;
+  return readAdminJSON(response);
 }
 function apply(data: { configured: boolean; enabled: boolean; outages: boolean; recoveries: boolean }) {
   configured = data.configured;

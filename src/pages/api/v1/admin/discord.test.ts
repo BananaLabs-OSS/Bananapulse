@@ -40,3 +40,12 @@ it('rejects malformed settings and unconfigured hosts', async () => {
   expect((await GET(ctx())).status).toBe(503);
   expect(mocks.call).not.toHaveBeenCalled();
 });
+it('returns a private API error when authentication owner is unavailable', async () => {
+  mocks.auth.mockRejectedValue(new Error('private transport details'));
+  for (const response of [await GET(ctx()), await POST(ctx({ action: 'test' }))]) {
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(await response.text()).not.toContain('private transport details');
+  }
+  expect(mocks.call).not.toHaveBeenCalled();
+});

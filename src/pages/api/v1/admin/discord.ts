@@ -9,14 +9,18 @@ function privateResponse(response: Response): Response {
   return response;
 }
 export const GET: APIRoute = async (ctx) => {
-  const who = await requireAdmin(ctx);
+  let who;
+  try { who = await requireAdmin(ctx); }
+  catch { return privateResponse(err('unavailable', 'Sign-in verification is unavailable. Retry shortly.', 503)); }
   if (who instanceof Response) return privateResponse(who);
   if (!pulpBridgeConfigured()) return privateResponse(err('unavailable', 'Discord notifications require the Pulp notification host.', 503));
   try { return privateResponse(ok(await callPulpEvent(SETTINGS, { action: 'get' }))); }
   catch { return privateResponse(err('unavailable', 'Discord settings are unavailable. Check that the host is updated and admin notifications are enabled.', 503)); }
 };
 export const POST: APIRoute = async (ctx) => {
-  const who = await requireAdmin(ctx);
+  let who;
+  try { who = await requireAdmin(ctx); }
+  catch { return privateResponse(err('unavailable', 'Sign-in verification is unavailable. Retry shortly.', 503)); }
   if (who instanceof Response) return privateResponse(who);
   // Session-authenticated mutations must originate from this admin site.
   if (ctx.request.headers.get('Origin') !== ctx.url.origin) return privateResponse(err('forbidden', 'Same-origin request required.', 403));
