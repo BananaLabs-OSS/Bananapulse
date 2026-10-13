@@ -651,7 +651,7 @@ func TestHTTPBridgeHealthAuthorizationAndAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.StatusCode != http.StatusOK {
+	if response.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("health status = %d", response.StatusCode)
 	}
 	response.Body.Close()

@@ -114,6 +114,7 @@ type runningBridge struct {
 	discord       *discordDelivery
 	sourceSagaDB  *sql.DB
 	serveErr      chan error
+	health        func(context.Context) error
 }
 
 func startBridge(ctx context.Context, config bridgeConfig) (*runningBridge, error) {
@@ -264,7 +265,7 @@ func startBridge(ctx context.Context, config bridgeConfig) (*runningBridge, erro
 	running := &runningBridge{
 		runtime: runtime, server: server, listener: listener, outboxWorker: outboxWorker,
 		sourceSagaDB: sourceSagaDB, discord: discord, discordWorker: discordWorker,
-		serveErr: make(chan error, 1),
+		serveErr: make(chan error, 1), health: bridge.monitorHealth,
 	}
 	go func() {
 		err := server.Serve(listener)
@@ -336,9 +337,27 @@ func runBridgeMain() error {
 		return err
 	}
 	var serveErr error
-	select {
-	case <-ctx.Done():
-	case serveErr = <-bridge.serveErr:
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+	failures := 0
+serveLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break serveLoop
+		case serveErr = <-bridge.serveErr:
+			break serveLoop
+		case <-ticker.C:
+			if err := bridge.health(ctx); err != nil {
+				failures++
+				if failures >= 3 {
+					serveErr = errors.New("monitoring component failed three readiness checks")
+					break serveLoop
+				}
+			} else {
+				failures = 0
+			}
+		}
 	}
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer shutdownCancel()

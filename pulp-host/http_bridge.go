@@ -51,6 +51,10 @@ func (b *httpBridge) serveHTTP(w http.ResponseWriter, r *http.Request) {
 			methodNotAllowed(w, http.MethodGet)
 			return
 		}
+		if err := b.monitorHealth(r.Context()); err != nil {
+			writeBridgeError(w, http.StatusServiceUnavailable, "monitoring component unavailable")
+			return
+		}
 		writeBridgeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		return
 	}
@@ -783,4 +787,15 @@ type bridgePublishRequest struct {
 type bridgePublishResponse struct {
 	Monitor      any `json:"monitor"`
 	Notification any `json:"notification"`
+}
+
+// Query a small real provider rather than reporting only HTTP listener health.
+func (b *httpBridge) monitorHealth(ctx context.Context) error {
+	if b.client == nil {
+		return errors.New("monitor client unavailable")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	var catalog map[string]any
+	return b.client.callProviderRaw(ctx, "pulp-monitor", "monitor.v1.catalog", nil, &catalog)
 }

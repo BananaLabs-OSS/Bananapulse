@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"testing"
@@ -676,5 +677,54 @@ func TestIngestAtomicallyUpdatesUptimeAndObservationAcrossReplay(t *testing.T) {
 	}
 	if duplicateDirect := apply(t, restartedAgain, direct); !duplicateDirect.Deduped {
 		t.Fatalf("direct ingest was not idempotent after replay: %#v", duplicateDirect)
+	}
+}
+
+func TestObservationIndexPreservesOrderingReplayAndIsolation(t *testing.T) {
+	store := &memoryEventStore{}
+	cell, err := openOwner(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	component := command("indexed-component", UpsertComponent, 100)
+	component.Component = &Component{ID: "api", Name: "API", Critical: true}
+	apply(t, cell, component)
+	source := command("indexed-source", UpsertSource, 100)
+	source.Source = &Source{ID: "probe", Name: "Probe", Kind: SourceProbe, Trusted: true, Weight: 1}
+	apply(t, cell, source)
+	for i, observation := range []Observation{
+		{ID: "z", SourceID: "probe", ComponentID: "api", Signal: SignalOK, ObservedAtUnix: 200},
+		{ID: "old", SourceID: "probe", ComponentID: "api", Signal: SignalDown, ObservedAtUnix: 100},
+		{ID: "a", SourceID: "probe", ComponentID: "api", Signal: SignalDown, ObservedAtUnix: 200},
+	} {
+		c := command(fmt.Sprintf("index-observation-%d", i), AppendObservation, 200)
+		c.Observation = &observation
+		apply(t, cell, c)
+	}
+	if got := cell.state.evaluate("api", 200).Status; got != StatusOperational {
+		t.Fatalf("out-of-order observation replaced latest: %s", got)
+	}
+	before := cell.state.latest["api"]["probe"]
+	store.appendErr = errors.New("storage unavailable")
+	c := command("index-rejected", AppendObservation, 300)
+	c.Observation = &Observation{ID: "new", SourceID: "probe", ComponentID: "api", Signal: SignalDown, ObservedAtUnix: 300}
+	if _, err := cell.apply(context.Background(), c); err == nil {
+		t.Fatal("expected persistence failure")
+	}
+	if cell.state.latest["api"]["probe"] != before || cell.state.observationIDs["new"] {
+		t.Fatal("failed append leaked into indexes")
+	}
+	store.appendErr = nil
+	reopened, err := openOwner(context.Background(), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cell.state.latest, reopened.state.latest) || !reflect.DeepEqual(cell.state.observationIDs, reopened.state.observationIDs) {
+		t.Fatal("replay did not reconstruct indexes")
+	}
+	duplicate := command("index-duplicate", AppendObservation, 300)
+	duplicate.Observation = &Observation{ID: "z", SourceID: "probe", ComponentID: "api", Signal: SignalDown, ObservedAtUnix: 300}
+	if _, err := reopened.apply(context.Background(), duplicate); err == nil {
+		t.Fatal("duplicate observation accepted")
 	}
 }

@@ -3,7 +3,10 @@
 name = "pulp-monitor"
 version = "1.1.0"
 wasm = "pulp-monitor.wasm"
-wasm_sha256 = "76a749911d1273b7ae5cfc5d1a4468ee86add8d9c81da2dc410d538574f4f97f"
+wasm_sha256 = "1c9cd01bb56738bc927365c72e7ea766fbbe144b9a5d0e7c4c6c87f207678cfc"
+# Leave room for retained history while replaying large durable logs.
+max_memory_pages = 8192
+call_timeout_ms = 120000
 provides = [
   "monitor.v1.catalog",
   "monitor.v1.command",

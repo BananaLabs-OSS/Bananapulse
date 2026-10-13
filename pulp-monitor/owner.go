@@ -69,24 +69,38 @@ func (o *owner) query(query Query) (Projection, error) {
 }
 
 type monitorState struct {
-	revision     uint64
-	commands     map[string]CommandResult
-	components   map[string]Component
-	sources      map[string]Source
-	mappings     map[string]SourceTargetMapping
-	observations []Observation
-	incidents    map[string]Incident
-	updates      []IncidentUpdate
-	maintenance  map[string]Maintenance
+	revision       uint64
+	commands       map[string]CommandResult
+	components     map[string]Component
+	sources        map[string]Source
+	mappings       map[string]SourceTargetMapping
+	observations   []Observation
+	latest         map[string]map[string]Observation
+	observationIDs map[string]bool
+	incidents      map[string]Incident
+	updates        []IncidentUpdate
+	maintenance    map[string]Maintenance
 }
 
 func newMonitorState() *monitorState {
-	return &monitorState{commands: map[string]CommandResult{}, components: map[string]Component{}, sources: map[string]Source{}, mappings: map[string]SourceTargetMapping{}, incidents: map[string]Incident{}, maintenance: map[string]Maintenance{}}
+	return &monitorState{latest: map[string]map[string]Observation{}, observationIDs: map[string]bool{}, commands: map[string]CommandResult{}, components: map[string]Component{}, sources: map[string]Source{}, mappings: map[string]SourceTargetMapping{}, incidents: map[string]Incident{}, maintenance: map[string]Maintenance{}}
 }
 
 func (s *monitorState) clone() *monitorState {
 	next := newMonitorState()
 	next.revision = s.revision
+	next.commands = make(map[string]CommandResult, len(s.commands)+1)
+	next.observationIDs = make(map[string]bool, len(s.observationIDs)+1)
+	for id := range s.observationIDs {
+		next.observationIDs[id] = true
+	}
+	for component, reads := range s.latest {
+		copyReads := make(map[string]Observation, len(reads))
+		for source, observation := range reads {
+			copyReads[source] = observation
+		}
+		next.latest[component] = copyReads
+	}
 	for k, v := range s.commands {
 		next.commands[k] = v
 	}
@@ -566,15 +580,21 @@ func (s *monitorState) appendObservation(value *Observation) error {
 	if value.ExpiresAtUnix != 0 && value.ExpiresAtUnix < value.ObservedAtUnix {
 		return fmt.Errorf("observation expiry precedes observation")
 	}
-	for _, existing := range s.observations {
-		if existing.ID == value.ID {
-			return fmt.Errorf("observation %q already exists", value.ID)
-		}
+	if s.observationIDs[value.ID] {
+		return fmt.Errorf("observation %q already exists", value.ID)
 	}
 	if value.ExpiresAtUnix == 0 && source.DefaultTTL != nil && *source.DefaultTTL > 0 {
 		value.ExpiresAtUnix = value.ObservedAtUnix + *source.DefaultTTL
 	}
 	s.observations = append(s.observations, *value)
+	s.observationIDs[value.ID] = true
+	if s.latest[value.ComponentID] == nil {
+		s.latest[value.ComponentID] = map[string]Observation{}
+	}
+	current, exists := s.latest[value.ComponentID][value.SourceID]
+	if !exists || value.ObservedAtUnix > current.ObservedAtUnix || (value.ObservedAtUnix == current.ObservedAtUnix && value.ID > current.ID) {
+		s.latest[value.ComponentID][value.SourceID] = *value
+	}
 	return nil
 }
 
@@ -1045,15 +1065,7 @@ func (s *monitorState) reconcile(componentID string, now int64) {
 
 func (s *monitorState) evaluate(componentID string, now int64) ComponentEvaluation {
 	component := s.components[componentID]
-	latest := map[string]Observation{}
-	for _, observation := range s.observations {
-		if observation.ComponentID == componentID {
-			current, ok := latest[observation.SourceID]
-			if !ok || observation.ObservedAtUnix > current.ObservedAtUnix || (observation.ObservedAtUnix == current.ObservedAtUnix && observation.ID > current.ID) {
-				latest[observation.SourceID] = observation
-			}
-		}
-	}
+	latest := s.latest[componentID]
 	expected := map[string]bool{}
 	for _, mapping := range s.mappings {
 		if mapping.ComponentID == componentID {

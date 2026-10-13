@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"runtime/debug"
 	"time"
 
 	"github.com/BananaLabs-OSS/Fiber/pulp"
@@ -15,6 +16,9 @@ func main() {}
 func init() { pulp.OnInit(bootstrap) }
 
 func bootstrap(_ []byte) error {
+	// Keep collection below the cell's bounded linear-memory budget.
+	debug.SetMemoryLimit(128 << 20)
+	debug.SetGCPercent(50)
 	store, err := newSQLiteEventStore("")
 	if err != nil {
 		return fmt.Errorf("open monitor SQLite store: %w", err)
