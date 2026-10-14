@@ -6,6 +6,7 @@
  * Quiet-when-healthy: operational rows get a grey leg + muted label; only
  * degraded/outage rows carry status color on the capsule leg.
  */
+import { publicJSON } from '../../lib/public-json';
 import type { ScopeView } from '../../lib/view';
 import { STATUS_COLOR, statusWordFor, statusColorFor, severityColor, severityLabel } from '../../lib/skin-copy';
 import { incidentStatusLabel, formatDate, formatTime } from '../../lib/types';
@@ -61,10 +62,16 @@ const DAY_COLOR: Record<string, string> = {
 const DAY_LABEL: Record<string, string> = {
   ok: 'Up', deg: 'Degraded', out: 'Down', maint: 'Maintenance', future: 'No data',
 };
-function barTitle(dayStatus: string, idx: number, len: number): string {
+function barISO(idx: number, len: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - (len - 1 - idx));
-  return `${formatDate(d.toISOString())} · ${DAY_LABEL[dayStatus] ?? 'No data'}`;
+  return d.toISOString().slice(0, 10);
+}
+function barTitle(dayStatus: string, idx: number, len: number): string {
+  // Format the UTC date in UTC (formatDate uses local tz → off-by-one on a date-only ISO).
+  const label = new Date(barISO(idx, len) + 'T00:00:00Z')
+    .toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric', year: 'numeric' });
+  return `${label} · ${DAY_LABEL[dayStatus] ?? 'No data'}`;
 }
 ---
 {view.maintenance.map((m) => {
@@ -98,9 +105,13 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
   </div>
   <span class="st" style={`color:${statusColorFor(view.level, view.status)}`}>{statusWordFor(view.level, view.status)}</span>
   <div class="upwrap">
-    <div class="bars">{view.uptime.map((d, i) => (<span class:list={[i === view.uptime.length - 1 && 'today']} title={barTitle(d, i, view.uptime.length)} style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
+    <div class="bars" data-sub={view.subtreeIds.join(' ')}>{view.uptime.map((d, i) => (<span class:list={[i === view.uptime.length - 1 && 'today']} data-date={barISO(i, view.uptime.length)} data-st={d} role="button" tabindex={i === view.uptime.length - 1 ? 0 : -1} aria-label={barTitle(d, i, view.uptime.length)} title={barTitle(d, i, view.uptime.length)} style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
+    <span class="barcap" aria-live="polite"></span>
   </div>
 </div>
+
+{/* Tap a day on the strip above → its incident card(s) appear here (like real incidents). */}
+<div class="daysel" id="daysel" hidden></div>
 
 {inlineSingle && (
   <IncidentDetail incident={view.attachedIncidents[0]} affectedPath={affectedPath} inline />
@@ -142,8 +153,9 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
           <span class="st" style={quiet ? 'color:var(--muted)' : `color:${col}`}>{statusWordFor(c.kind, c.status)}</span>
           <span class="chev">›</span>
           <div class="upwrap">
-            <div class="bars">{c.uptime.map((d, i) => (<span class:list={[i === c.uptime.length - 1 && 'today']} title={barTitle(d, i, c.uptime.length)} style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
+            <div class="bars" data-sub={c.subtree.join(' ')}>{c.uptime.map((d, i) => (<span class:list={[i === c.uptime.length - 1 && 'today']} data-date={barISO(i, c.uptime.length)} data-st={d} role="button" tabindex={i === c.uptime.length - 1 ? 0 : -1} aria-label={barTitle(d, i, c.uptime.length)} title={barTitle(d, i, c.uptime.length)} style={`background:${DAY_COLOR[d] ?? 'var(--line2)'}`}></span>))}</div>
             <span class="up">{c.uptimePct}%</span>
+            <span class="barcap" aria-live="polite"></span>
           </div>
         </a>
       );
@@ -151,12 +163,215 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
   </>
 )}
 
+<script is:inline type="application/json" id="day-incidents" set:html={publicJSON(view.dayIncidents)}></script>
+
 <style>
-  /* The current (in-progress) day pulses to read as LIVE — its colour still tracks
-     the real-time status; the animation only signals "this one is now / unfinished". */
-  @keyframes today-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.38; } }
-  .bars span.today { animation: today-pulse 1.6s ease-in-out infinite; }
+  /* The current (in-progress) day is a MARQUEE — animated diagonal "barber-pole"
+     stripes that march across the bar, the universal "in progress / live" motion.
+     Overlaid via ::after so the bar keeps its status colour underneath. */
+  /* Wider than its neighbours so it's a clear "this is today" marker AND big enough
+     for the marquee to read on a phone (the 90 thin bars are ~2px each). */
+  .bars span.today {
+    opacity: 1;
+    position: relative;
+    overflow: hidden;
+    flex: 0 0 auto;
+    width: 9px;
+    border-radius: 2px;
+    box-shadow: 0 0 0 1px var(--paper, rgba(0,0,0,0.15));
+  }
+  .bars span.today::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.7) 0, rgba(255, 255, 255, 0.7) 3px,
+      transparent 3px, transparent 6px
+    );
+    background-size: 8.49px 8.49px; /* sqrt(2)*6 → seamless tile when shifted one step */
+    animation: marquee-stripes 0.6s linear infinite;
+    pointer-events: none; /* taps pass through to the bar */
+  }
+  /* Tap-to-reveal: `title` only shows on hover (desktop). On touch, tapping the strip
+     fills this caption with the nearest day's date + status. */
+  .upwrap { position: relative; flex-wrap: wrap; }
+  /* Caption sits on its OWN wrapped line BELOW the bars (flex-basis:100%), so it
+     never pushes the bar cells sideways (the old "cells get screwy" jitter) and is
+     never clipped at the card edge (the old absolute-positioning cut-off). The card
+     simply grows down when it appears. */
+  .barcap {
+    flex-basis: 100%; margin-top: 6px;
+    font-family: var(--mono); font-size: 11px; line-height: 1.35; color: var(--muted);
+    white-space: normal; overflow-wrap: anywhere;
+  }
+  .barcap:empty { display: none; }
+  .bars { cursor: pointer; touch-action: none; } /* hold-drag magnifies instead of scrolling */
+  .daysel { margin-top: 14px; } /* day-selected incident card(s) */
+  .bars span.peek { outline: 2px solid var(--ink, #111); outline-offset: 1px; } /* real bar under the pointer */
+  @keyframes marquee-stripes {
+    from { background-position: 0 0; }
+    to   { background-position: 8.49px 0; }
+  }
   @media (prefers-reduced-motion: reduce) {
-    .bars span.today { animation: none; outline: 1px solid currentColor; outline-offset: 1px; }
+    .bars span.today::after { animation: none; }
   }
 </style>
+
+<style is:global>
+  /* Magnifier loupe (appended to <body>, so styled globally not scoped). */
+  .bar-loupe {
+    position: fixed; z-index: 9999; display: none; pointer-events: none;
+    max-width: 280px;
+    background: var(--paper, #fff); border: 1px solid var(--line2, rgba(0,0,0,.18));
+    border-radius: 10px; padding: 8px 10px; box-shadow: 0 10px 30px rgba(0,0,0,.35);
+  }
+  .bar-loupe .loupe-bars { display: flex; gap: 3px; height: 42px; align-items: stretch; }
+  .bar-loupe .loupe-bars span { width: 11px; border-radius: 2px; }
+  .bar-loupe .loupe-bars span.sel { outline: 2px solid var(--ink, #111); outline-offset: 2px; }
+  .bar-loupe .loupe-cap { margin-top: 8px; font-family: var(--mono, monospace); font-size: 12px; text-align: center; color: var(--ink, #111); white-space: normal; overflow-wrap: anywhere; }
+  .bar-loupe .loupe-cap a { color: var(--major, #c0392b); }
+</style>
+
+<script>
+  // Hover (mouse) / press-hold (touch) the uptime strip to MAGNIFY the days around
+  // the pointer and read the exact date + status. The loupe follows the pointer.
+  // (A quick tap still fills the inline caption.)
+  const loupe = document.createElement('div');
+  loupe.className = 'bar-loupe';
+  loupe.setAttribute('aria-hidden', 'true');
+  loupe.innerHTML = '<div class="loupe-bars"></div><div class="loupe-cap"></div>';
+  document.body.appendChild(loupe);
+  const loupeBars = loupe.querySelector('.loupe-bars') as HTMLElement;
+  const loupeCap = loupe.querySelector('.loupe-cap') as HTMLElement;
+  let lastPeek: Element | null = null;
+  const clearPeek = () => { if (lastPeek) { lastPeek.classList.remove('peek'); lastPeek = null; } };
+
+  // Day → incidents lookup: tapping/scrubbing a day shows ONLY that day's incidents
+  // (date within the incident's range AND it affects this strip's subtree).
+  type DInc = { id: string; title: string; severity: string; affectedName?: string; affects: string[]; start: string; end: string };
+  const DAY_INC: DInc[] = JSON.parse(document.getElementById('day-incidents')?.textContent || '[]');
+  const esc = (s: string | null) => (s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
+  const SEV_COLOR: Record<string, string> = { major: 'var(--major)', moderate: 'var(--part)', minor: 'var(--degr)' };
+  const SEV_LABEL: Record<string, string> = { major: 'Major', moderate: 'Moderate', minor: 'Minor' };
+
+  function matchesFor(barEl: Element, barsEl: Element): DInc[] {
+    // The day's RECORDED bar status is the truth — only show incidents on a day that
+    // was actually degraded/down (a green / no-data day shows none, even if some
+    // incident's date-range happens to span it).
+    const st = barEl.getAttribute('data-st');
+    if (st !== 'deg' && st !== 'out') return [];
+    const date = barEl.getAttribute('data-date');
+    const sub = (barsEl.getAttribute('data-sub') || '').split(' ').filter(Boolean);
+    return date ? DAY_INC.filter((i) => i.start <= date && date <= i.end && i.affects.some((a) => sub.includes(a))) : [];
+  }
+  // Build a card identical to the real incident rows (same .row markup + severity leg).
+  function incidentCard(i: DInc): string {
+    const col = SEV_COLOR[i.severity] || 'var(--muted)';
+    const range = i.start === i.end ? esc(i.start) : `${esc(i.start)} → ${esc(i.end)}`;
+    const meta = `${i.affectedName ? esc(i.affectedName) + ' · ' : ''}${range}`;
+    return `<a class="row" href="/incident/${encodeURIComponent(i.id)}" style="--leg:${col}"><div><div class="nm">${esc(i.title)}</div><div class="kd">${meta}</div></div><span class="st" style="color:${col}">${SEV_LABEL[i.severity] || esc(i.severity)}</span><span class="chev">›</span></a>`;
+  }
+  // Tap a day → render its incident card(s) into the #daysel panel (like real incidents).
+  function selectDay(barEl: Element, barsEl: Element) {
+    const panel = document.getElementById('daysel');
+    if (!panel) return;
+    const title = barEl.getAttribute('title') || '';
+    const hits = matchesFor(barEl, barsEl);
+    panel.innerHTML = `<div class="seclbl">${esc(title)}</div>` +
+      (hits.length
+        ? hits.map(incidentCard).join('')
+        : `<div class="row static" style="--leg:var(--line2)"><div><div class="nm">No incidents</div><div class="kd">nothing recorded on this day</div></div></div>`);
+    (panel as HTMLElement).hidden = false;
+  }
+
+  function nearest(barsEl: Element, x: number) {
+    const spans = Array.from(barsEl.querySelectorAll('span[title]'));
+    let idx = 0, bd = Infinity;
+    spans.forEach((s, i) => {
+      const r = s.getBoundingClientRect();
+      const d = Math.abs((r.left + r.right) / 2 - x);
+      if (d < bd) { bd = d; idx = i; }
+    });
+    return { spans, idx };
+  }
+
+  function showLoupe(barsEl: Element, cx: number, cy: number) {
+    const { spans, idx } = nearest(barsEl, cx);
+    if (!spans.length) return;
+    const half = 6;
+    const start = Math.min(Math.max(0, idx - half), Math.max(0, spans.length - (half * 2 + 1)));
+    const win = spans.slice(start, start + half * 2 + 1);
+    loupeBars.replaceChildren(...win.map((s, k) => {
+      const b = document.createElement('span');
+      b.style.background = getComputedStyle(s).backgroundColor;
+      if (start + k === idx) b.className = 'sel';
+      return b;
+    }));
+    // Highlight the REAL bar under the pointer (the one on the strip, not in the loupe).
+    clearPeek();
+    spans[idx].classList.add('peek');
+    lastPeek = spans[idx];
+    const label = spans[idx].getAttribute('title');
+    loupeCap.textContent = label; // loupe shows the date while scrubbing
+    const cap = (barsEl.closest('.upwrap') as Element | null)?.querySelector('.barcap');
+    if (cap) cap.textContent = label;
+    // Bring up the day's incident card(s) live as you hover/scrub (main strip only).
+    if (!barsEl.closest('a')) selectDay(spans[idx], barsEl);
+    loupe.style.display = 'block';
+    const lw = loupe.offsetWidth, lh = loupe.offsetHeight;
+    const lx = Math.max(6, Math.min(cx - lw / 2, window.innerWidth - lw - 6));
+    let ly = cy - lh - 16;
+    if (ly < 6) ly = cy + 24;
+    loupe.style.left = `${lx}px`;
+    loupe.style.top = `${ly}px`;
+  }
+  const hideLoupe = () => { loupe.style.display = 'none'; clearPeek(); };
+  // Reset the day-incident panel back to the default (hidden) view. Called when
+  // the mouse LEAVES the strip so the page returns to its normal state instead
+  // of leaving the last-hovered day's card stuck on screen (the "I have to
+  // refresh to get it proper" bug). Touch taps deliberately keep the panel.
+  const clearPanel = () => { const p = document.getElementById('daysel') as HTMLElement | null; if (p) { p.hidden = true; p.innerHTML = ''; } };
+
+  document.querySelectorAll('.upwrap .bars').forEach((bars) => {
+    let active = false;
+    bars.addEventListener('keydown', (event) => {
+      const e = event as KeyboardEvent;
+      const spans = Array.from(bars.querySelectorAll<HTMLElement>('span[title]'));
+      const current = spans.indexOf(document.activeElement as HTMLElement);
+      if (current < 0) return;
+      let index = current;
+      if (e.key === 'ArrowLeft') index = Math.max(0, current - 1);
+      else if (e.key === 'ArrowRight') index = Math.min(spans.length - 1, current + 1);
+      else if (e.key === 'Home') index = 0;
+      else if (e.key === 'End') index = spans.length - 1;
+      else if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      spans.forEach((span, i) => { span.tabIndex = i === index ? 0 : -1; });
+      spans[index].focus();
+      const rect = spans[index].getBoundingClientRect();
+      showLoupe(bars, (rect.left + rect.right) / 2, rect.top);
+      selectDay(spans[index], bars);
+    });
+    bars.addEventListener('pointerdown', (e) => {
+      const pe = e as PointerEvent;
+      active = true;
+      try { (bars as Element).setPointerCapture(pe.pointerId); } catch {}
+      showLoupe(bars, pe.clientX, pe.clientY);
+    });
+    bars.addEventListener('pointermove', (e) => {
+      const pe = e as PointerEvent;
+      if (active || pe.pointerType === 'mouse') showLoupe(bars, pe.clientX, pe.clientY);
+    });
+    const end = () => { active = false; hideLoupe(); };
+    bars.addEventListener('focusout', (e) => { if (!bars.contains((e as FocusEvent).relatedTarget as Node | null)) { hideLoupe(); clearPanel(); } });
+    bars.addEventListener('pointerup', end);
+    bars.addEventListener('pointercancel', end);
+    bars.addEventListener('pointerleave', (e) => { if ((e as PointerEvent).pointerType === 'mouse') { hideLoupe(); clearPanel(); } });
+    bars.addEventListener('click', (e) => {
+      if (bars.closest('a')) return; // child rows are drill-in links; only the main strip opens the day card
+      const { spans, idx } = nearest(bars, (e as MouseEvent).clientX);
+      if (spans[idx]) selectDay(spans[idx], bars);
+    });
+  });
+</script>

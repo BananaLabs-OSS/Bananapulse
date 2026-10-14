@@ -75,11 +75,19 @@ func queueDiscordTransitions(ctx context.Context, tx *sql.Tx, transitions []Doma
 		}
 		label, color := "Outage started", 0xdc3545
 		description := "The service is unavailable. View the incident for details."
+		if t.Incident != nil && t.Incident.Severity != "major" {
+			label, color = "Service incident", 0xffc107
+			description = "A service issue has been reported. View the incident for details."
+			if t.Incident.Severity == "minor" {
+				label = "Service degraded"
+				description = "The service is degraded. It may still be available. View the incident for details."
+			}
+		}
 		if t.Kind == "incident.resolved" {
 			label, color = "Recovered", 0x198754
 			description = "The service has recovered."
 			if t.Incident != nil && t.Incident.ResolvedAtUnix >= t.Incident.StartedAtUnix && t.Incident.StartedAtUnix > 0 {
-				description += fmt.Sprintf(" Downtime: %s.", time.Duration(t.Incident.ResolvedAtUnix-t.Incident.StartedAtUnix)*time.Second)
+				description += fmt.Sprintf(" Incident duration: %s.", time.Duration(t.Incident.ResolvedAtUnix-t.Incident.StartedAtUnix)*time.Second)
 			}
 		}
 		runes := []rune(title)

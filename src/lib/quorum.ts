@@ -142,13 +142,22 @@ export async function evaluateComponent(componentId: string, now = new Date()): 
     observed_at: Date;
     expires_at: Date | null;
   }>(sql`
-    SELECT DISTINCT ON (o.source_id)
+    SELECT
       o.source_id, s.name, s.weight, s.kind, s.trusted, s.revoked_at,
       o.signal, o.detail, o.observed_at, o.expires_at
-    FROM ${observations} o
-    JOIN ${sources} s ON s.id = o.source_id
-    WHERE o.component_id = ${componentId}
-    ORDER BY o.source_id, o.observed_at DESC
+    FROM ${sources} s
+    JOIN LATERAL (
+      -- Seek the predecessor of this source/component's upper bound. Keeping
+      -- the complete key in the ordering prevents a component-only index walk
+      -- that discards an entire history when this source has no matching read.
+      SELECT source_id, component_id, signal, detail, observed_at, expires_at
+      FROM ${observations}
+      WHERE (source_id, component_id, observed_at)
+        <= (s.id, ${componentId}, 'infinity'::timestamptz)
+      ORDER BY source_id DESC, component_id DESC, observed_at DESC
+      LIMIT 1
+    ) o ON o.source_id = s.id AND o.component_id = ${componentId}
+    ORDER BY o.source_id
   `);
 
   const reads: SourceRead[] = [];
@@ -534,7 +543,11 @@ export async function runQuorum(componentId: string, now = new Date()): Promise<
  */
 async function componentsWithSignal(): Promise<string[]> {
   const rows = await db.execute<{ component_id: string }>(sql`
-    SELECT DISTINCT component_id FROM ${observations}
+    SELECT c.id AS component_id FROM ${components} c
+    JOIN LATERAL (
+      SELECT 1 FROM ${observations} o WHERE o.component_id = c.id
+      ORDER BY o.observed_at DESC LIMIT 1
+    ) observed ON true
     UNION
     SELECT DISTINCT component_id FROM ${sourceTargetMap}
   `);
@@ -573,7 +586,11 @@ export function evaluationToStatus(ev: ComponentEvaluation): DerivedStatus {
  */
 export async function derivedComponentStatuses(now = new Date()): Promise<Record<string, { status: DerivedStatus; state: QuorumState; reducedCoverage: boolean }>> {
   const rows = await db.execute<{ component_id: string }>(sql`
-    SELECT DISTINCT component_id FROM ${observations}
+    SELECT c.id AS component_id FROM ${components} c
+    JOIN LATERAL (
+      SELECT 1 FROM ${observations} o WHERE o.component_id = c.id
+      ORDER BY o.observed_at DESC LIMIT 1
+    ) observed ON true
   `);
   const out: Record<string, { status: DerivedStatus; state: QuorumState; reducedCoverage: boolean }> = {};
   for (const r of rows) {

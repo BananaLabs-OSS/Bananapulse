@@ -1,0 +1,16 @@
+---
+import { publicTelemetry } from '../../lib/telemetry';
+interface Props { componentIds: string[] }
+const modules = await publicTelemetry(Astro.props.componentIds);
+---
+{modules.length > 0 && <details class="telemetry-panel">
+  <summary>Service details</summary>
+  {modules.map(module => module.unavailable ? <p>Performance data temporarily unavailable.</p> : <div>
+    <dl>{module.metrics.map(metric => <div><dt>{metric.label}</dt><dd>{metric.value.toLocaleString('en', { maximumFractionDigits: 2 })}{metric.unit === 'ratio' || metric.unit === 'count' ? '' : ` ${metric.unit}`}</dd></div>)}</dl>
+    {module.observedAt && <small>Updated <time datetime={new Date(module.observedAt * 1000).toISOString()}>{new Date(module.observedAt * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC')}</time></small>}
+  </div>)}
+</details>}
+<style>
+.telemetry-panel {margin:1rem 0;padding:1rem;border:1px solid var(--border,#ddd);border-radius:.5rem;color:var(--fg,inherit)}
+summary {cursor:pointer} dl {display:flex;gap:1.5rem;flex-wrap:wrap} dt {font-size:.85rem;opacity:.7} dd {margin:.3rem 0;font-weight:600} small {opacity:.7}
+</style>

@@ -6,6 +6,7 @@
  */
 import type { ScopeView } from '../../lib/view';
 import SkinML from './SkinML.astro';
+import TelemetryPanel from './TelemetryPanel.astro';
 
 interface Props {
   view: ScopeView;
@@ -19,3 +20,5 @@ interface Props {
 const { view, companyName, affectedPath } = Astro.props;
 ---
 <SkinML view={view} companyName={companyName} affectedPath={affectedPath} />
+
+<TelemetryPanel componentIds={view.subtreeIds} />

@@ -26,10 +26,14 @@ try {
     ? buildPulpComponentView(await getMonitorProjection(), scope, segs)
     : await buildComponentView(scope, segs);
 } catch (_e) {
-  unavailable = ownerSelected;
-  // Owner mode stays fail-closed; legacy mode preserves its existing 404 behavior.
+  unavailable = true;
+  // A failed owner lookup is unavailable, not evidence of a missing page.
 }
 if (!view) Astro.response.status = unavailable ? 503 : 404;
+if (unavailable) {
+  Astro.response.headers.set('Cache-Control', 'no-store');
+  Astro.response.headers.set('Retry-After', '30');
+}
 
 const affectedPath = view ? view.crumbs.map((c) => c.label) : [];
 ---

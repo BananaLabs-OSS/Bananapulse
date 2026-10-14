@@ -59,7 +59,7 @@ func TestDiscordTransitionsArePrivateDeduplicatedAndSeparatedFromEmail(t *testin
 	}
 	found := false
 	for _, i := range claim.Intents {
-		if strings.Contains(i.Body, "Downtime: 18s") {
+		if strings.Contains(i.Body, "Incident duration: 18s") {
 			found = true
 		}
 	}
@@ -82,5 +82,28 @@ func TestDiscordURLUsesPublicIncidentRoute(t *testing.T) {
 	got := discordIncidentURL("https://status.example.test/api/unsubscribe", "auto/server/123")
 	if got != "https://status.example.test/incident/auto%2Fserver%2F123" {
 		t.Fatal(got)
+	}
+}
+
+func TestDiscordMinorIncidentDoesNotClaimServiceUnavailable(t *testing.T) {
+	ctx := context.Background()
+	store, owner := openTestOwner(t, ":memory:")
+	defer store.Close()
+	setDeliveryConfig(t, owner, "performance-base", "https://status.example.test/unsubscribe")
+	if _, err := owner.SetDiscordConfig(ctx, DiscordConfig{Version: ContractVersion, Enabled: true, Outages: true, Recoveries: true}); err != nil {
+		t.Fatal(err)
+	}
+	command := incidentTransitionResult("performance-open", false)
+	command.Transitions[0].Incident.Severity = "minor"
+	command.Transitions[0].Incident.Title = "Game performance — expect lag"
+	if _, err := owner.ApplyTransition(ctx, command); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := owner.ClaimOutbox(ctx, OutboxClaimRequest{Version: ContractVersion, WorkerID: "performance", Limit: 25, Channel: "discord"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(claim.Intents) != 1 || !strings.Contains(claim.Intents[0].Body, "Service degraded") || strings.Contains(claim.Intents[0].Body, "service is unavailable") {
+		t.Fatal("performance alert was described as an outage")
 	}
 }
