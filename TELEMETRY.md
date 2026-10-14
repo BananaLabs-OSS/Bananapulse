@@ -33,3 +33,6 @@ Use a dedicated performance component and source: a game-port observation on the
 ## Validation
 
 `python3 -m unittest discover -s modules/telemetry` verifies numeric field privacy, missing/invalid metrics, storage restart/expiry and policy hysteresis/gaps. `npm test`, `npm run check` and `npm run build:local` cover the optional display and frontend. `node scripts/test-observation-queries.mjs` uses an isolated PostgreSQL container to verify the observation-query backport against long histories and missing source/component combinations.
+
+Rules may also use `direction: "above"`, `above`, and `recoverBelow` for latency-style metrics. Optional `gateComponentId` and `gateSourceId` require a fresh responding availability observation before publishing performance status. Private numeric collection continues during availability failures, while alert dwell timers reset and no competing performance declaration is emitted.
+

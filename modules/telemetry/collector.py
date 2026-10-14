@@ -57,13 +57,13 @@ class Store:
         try:
             with db: yield db
         finally: db.close()
-    def record(self, at, metrics=None):
+    def record(self, at, metrics=None, publish=True):
         with self.lock, self.connect() as db:
             db.execute('INSERT OR REPLACE INTO poll_state VALUES(1,?,?)', (at, int(metrics is not None)))
             if metrics is not None:
                 db.execute('INSERT OR REPLACE INTO samples VALUES(?,?)', (at,json.dumps(metrics)))
                 policy = self.config.get('policy')
-                if policy and policy.get('enabled'):
+                if policy and policy.get('enabled') and publish:
                     row = db.execute('SELECT state FROM policy_state WHERE id=1').fetchone()
                     state, signal = advance_policy(json.loads(row[0]) if row else {}, metrics, at, policy, self.config.get('ttlSeconds',120))
                     db.execute('INSERT OR REPLACE INTO policy_state VALUES(1,?)', (json.dumps(state),))
@@ -73,7 +73,8 @@ class Store:
                                 'signal':signal,'detail':json.dumps({'module':self.config['id'],'metrics':metrics}),
                                 'observed_at_unix':at,'expires_at_unix':at+self.config.get('ttlSeconds',120)}}
                         db.execute('INSERT INTO delivery_queue VALUES(?,?,?)',(command['id'],json.dumps(command),at))
-            if metrics is None:
+            if metrics is None or not publish:
+                db.execute('DELETE FROM delivery_queue')
                 row=db.execute('SELECT state FROM policy_state WHERE id=1').fetchone()
                 if row:
                     state=json.loads(row[0]);state.pop('badSince',None);state.pop('goodSince',None)
@@ -104,11 +105,14 @@ def advance_policy(state, metrics, now, policy, ttl):
         state.pop('badSince',None);state.pop('goodSince',None)
         return state,None  # Loading or missing readiness is not evidence of recovered performance.
     value = values[policy['metricId']]
-    if value < policy['below']:
+    above = policy.get('direction') == 'above'
+    breached = value > policy['above'] if above else value < policy['below']
+    recovered = value < policy['recoverBelow'] if above else value >= policy['recoverAbove']
+    if breached:
         state.pop('goodSince',None)
         state.setdefault('badSince',now)
         if now-state['badSince'] >= policy['badForSeconds']: state['degraded']=True
-    elif value >= policy['recoverAbove']:
+    elif recovered:
         state.pop('badSince',None)
         state.setdefault('goodSince',now)
         if now-state['goodSince'] >= policy['recoveryForSeconds']: state['degraded']=False
@@ -121,7 +125,9 @@ def bridge_event(event, body):
     request=urllib.request.Request(base+'/internal/v1/events/'+event,data=json.dumps(body).encode(),
         headers={'Content-Type':'application/json','X-Pulp-Bridge-Token':os.environ['PULP_BRIDGE_TOKEN']},method='POST')
     with urllib.request.urlopen(request,timeout=10) as response:
-        return json.loads(response.read(65536))
+        raw=response.read(1048577)
+        if len(raw)>1048576: raise ValueError('Bridge response exceeds limit')
+        return json.loads(raw)
 
 def initialize_policy(config):
     policy=config.get('policy')
@@ -136,6 +142,17 @@ def initialize_policy(config):
     digest=hashlib.sha256(json.dumps(source,sort_keys=True).encode()).hexdigest()[:16]
     bridge_event('bananapulse.monitor.admin.command.v1',{'version':'monitor.v1','id':config['id']+'-source-'+digest,
         'kind':'upsert_source','at_unix':int(time.time()),'source':source})
+
+def can_publish(config):
+    policy=config.get('policy',{})
+    component=policy.get('gateComponentId')
+    if not component: return True
+    now=int(time.time())
+    projection=bridge_event('bananapulse.monitor.query.v1',{'version':'monitor.v1','component_id':component,'at_unix':now})
+    row=next((row for row in projection.get('components',[]) if row['component']['id']==component),{})
+    return any(read.get('source_id')==policy.get('gateSourceId') and not read.get('stale') and
+        read.get('expires_at_unix',0)>now and read.get('signal')!='down'
+        for read in row.get('own_evaluation',{}).get('reads',[]))
 
 def deliver(store):
     with store.lock, store.connect() as db:
@@ -186,7 +203,9 @@ def main():
             store.record(at)
             print(json.dumps({'module':config['id'],'sample':'unavailable','observedAt':at}),flush=True)
         else:
-            store.record(at,metrics)
+            try: publish=can_publish(config)
+            except Exception: publish=False
+            store.record(at,metrics,publish=publish)
             print(json.dumps({'module':config['id'],'sample':'ok','observedAt':at}),flush=True)
             try:
                 if not initialized: initialize_policy(config);initialized=True

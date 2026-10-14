@@ -29,10 +29,8 @@ export const STATUS_LABEL: Record<ServiceStatus, string> = {
 // Per-LEVEL status vocabulary — the right word depends on WHAT you're describing:
 //   SYSTEM  → Operational / Partial / Outage   (the whole thing)
 //   PRODUCT → Healthy / Degraded / Unhealthy    (a group of services)
-//   SERVICE → Up / Down                         (a single thing — binary)
-// "Middle" is an AGGREGATE state (some children down); a leaf service has no
-// children, so a degraded service still reads "Up" — its degradation surfaces via
-// the incident badge and rolls the parent product up to "Degraded".
+//   SERVICE → Up / Degraded / Down
+// Leaf services can remain reachable while degraded; preserve that distinction.
 export type LevelKind = 'system' | 'product' | 'service';
 export function levelOf(levelOrKind: string): LevelKind {
   if (levelOrKind === 'umbrella' || levelOrKind === 'organization') return 'system';
@@ -44,12 +42,11 @@ export function statusWordFor(levelOrKind: string, status: ServiceStatus): strin
   switch (levelOf(levelOrKind)) {
     case 'system':  return status === 'operational' ? 'Operational' : status === 'degraded' ? 'Partial' : 'Outage';
     case 'product': return status === 'operational' ? 'Healthy' : status === 'degraded' ? 'Degraded' : 'Unhealthy';
-    default:        return status === 'outage' ? 'Down' : 'Up'; // service: binary (degraded folds into Up)
+    default:        return status === 'outage' ? 'Down' : status === 'degraded' ? 'Degraded' : 'Up';
   }
 }
-// Color follows the word: a degraded SERVICE reads "Up", so it shows the ok color.
-export function statusColorFor(levelOrKind: string, status: ServiceStatus): string {
-  if (levelOf(levelOrKind) === 'service' && status === 'degraded') return STATUS_COLOR.operational;
+// Color preserves operational, degraded and outage across levels.
+export function statusColorFor(_levelOrKind: string, status: ServiceStatus): string {
   return STATUS_COLOR[status];
 }
 

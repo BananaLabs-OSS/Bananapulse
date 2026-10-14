@@ -44,5 +44,33 @@ class DurablePolicyTests(unittest.TestCase):
    with reopened.connect() as db:
     state=json.loads(db.execute('SELECT state FROM policy_state').fetchone()[0]);rows=db.execute('SELECT id,payload FROM delivery_queue').fetchall()
    self.assertEqual(state['badSince'],160);self.assertFalse(state.get('degraded',False))
-   self.assertEqual(len(rows),2)
+   self.assertEqual(len(rows),1)
    self.assertTrue(all(ident==json.loads(raw)['id'] for ident,raw in rows))
+
+class LatencyPolicyTests(unittest.TestCase):
+ def test_latency_requires_sustained_breach_and_clear_recovery(self):
+  p={'metricId':'latency','direction':'above','above':300,'recoverBelow':150,'badForSeconds':120,'recoveryForSeconds':120}
+  state={}
+  def step(at,value):
+   nonlocal state
+   state,signal=collector.advance_policy(state,[{'id':'latency','value':value}],at,p,120)
+   return signal
+  self.assertEqual(step(100,301),'ok');self.assertEqual(step(160,500),'ok');self.assertEqual(step(220,500),'degraded')
+  self.assertEqual(step(250,200),'degraded');self.assertEqual(step(280,149),'degraded');self.assertEqual(step(340,149),'degraded');self.assertEqual(step(400,149),'ok')
+
+class AvailabilityGateTests(unittest.TestCase):
+ def test_unavailable_game_keeps_private_metrics_without_alert_observation(self):
+  p={'enabled':True,'metricId':'speed','below':.8,'recoverAbove':.95,'badForSeconds':0,'recoveryForSeconds':0,'sourceId':'source'}
+  with tempfile.TemporaryDirectory() as root:
+   s=collector.Store(str(Path(root)/'samples.db'),{'id':'test','componentId':'service','policy':p})
+   s.record(100,[{'id':'speed','value':.7}],publish=False)
+   with s.connect() as db:self.assertEqual(db.execute('select count(*) from delivery_queue').fetchone()[0],0)
+   self.assertEqual(s.snapshot(110)['metrics'][0]['value'],.7)
+
+class PendingGateTests(unittest.TestCase):
+ def test_game_failure_discards_pending_performance_claims(self):
+  p={'enabled':True,'metricId':'speed','below':.8,'recoverAbove':.95,'badForSeconds':0,'recoveryForSeconds':0,'sourceId':'source'}
+  with tempfile.TemporaryDirectory() as root:
+   s=collector.Store(str(Path(root)/'samples.db'),{'id':'test','componentId':'service','policy':p})
+   s.record(100,[{'id':'speed','value':.7}]);s.record(130,[{'id':'speed','value':.7}],publish=False)
+   with s.connect() as db:self.assertEqual(db.execute('select count(*) from delivery_queue').fetchone()[0],0)
