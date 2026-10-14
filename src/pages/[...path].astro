@@ -12,6 +12,7 @@ import NotFound from '../components/skin/NotFound.astro';
 import { buildComponentView } from '../lib/components';
 import { getMonitorProjection, pulpMonitorProjectionConfigured } from '../lib/pulp-bridge';
 import { buildPulpComponentView } from '../lib/pulp-monitor-projection';
+import { singleChildDestination } from '../lib/single-child-view';
 import { COMPANY } from '../pulse.config';
 
 const scope = (Astro.locals as any).scope as string | null;
@@ -22,9 +23,17 @@ const ownerSelected = pulpMonitorProjectionConfigured();
 let view = null;
 let unavailable = false;
 try {
-  view = ownerSelected
-    ? buildPulpComponentView(await getMonitorProjection(), scope, segs)
-    : await buildComponentView(scope, segs);
+  const projection = ownerSelected ? await getMonitorProjection() : null;
+  const load = (segments: string[]) => projection
+    ? buildPulpComponentView(projection, scope, segments)
+    : buildComponentView(scope, segments);
+  view = await load(segs);
+  const destination = await singleChildDestination(view, Astro.url.pathname, load);
+  if (destination) {
+    const redirect = Astro.redirect(destination + Astro.url.search, 302);
+    redirect.headers.set('Cache-Control', 'no-store');
+    return redirect;
+  }
 } catch (_e) {
   unavailable = true;
   // A failed owner lookup is unavailable, not evidence of a missing page.
