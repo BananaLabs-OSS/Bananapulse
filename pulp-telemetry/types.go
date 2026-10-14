@@ -2,12 +2,13 @@ package main
 
 // All provider contracts are versioned; secrets and raw provider payloads are never persisted.
 type Metric struct {
-	ID    string   `json:"id" msgpack:"id"`
-	Label string   `json:"label" msgpack:"label"`
-	Unit  string   `json:"unit" msgpack:"unit"`
-	Value float64  `json:"value" msgpack:"value"`
-	Min   *float64 `json:"min,omitempty" msgpack:"min,omitempty"`
-	Max   *float64 `json:"max,omitempty" msgpack:"max,omitempty"`
+	Samples int64    `json:"samples,omitempty" msgpack:"samples,omitempty"`
+	ID      string   `json:"id" msgpack:"id"`
+	Label   string   `json:"label" msgpack:"label"`
+	Unit    string   `json:"unit" msgpack:"unit"`
+	Value   float64  `json:"value" msgpack:"value"`
+	Min     *float64 `json:"min,omitempty" msgpack:"min,omitempty"`
+	Max     *float64 `json:"max,omitempty" msgpack:"max,omitempty"`
 }
 type Policy struct {
 	Enabled      bool    `json:"enabled" msgpack:"enabled"`

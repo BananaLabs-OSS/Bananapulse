@@ -5,9 +5,9 @@ capabilities = ["storage.sqlite"]
 
 [module]
 id = "bananalabs/telemetry"
-version = "1.0.1"
+version = "1.0.2"
 
 [[artifacts]]
 target = "wasm32-wasip1+pulp-v1"
-digest = "sha256:612b2a997d097da635b229c1cd20cdf74a49b63870c13e2c67ec940dac27fa6d"
-size = 5190867
+digest = "sha256:fb536bc3bff8561dc18e1b93deab4860a68239c0fc956f2840f2f4984b2a8ef2"
+size = 5191018

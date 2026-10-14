@@ -72,9 +72,10 @@ func TestOptionalPulpTelemetryRealWasmAndPrivateBridge(t *testing.T) {
 		Samples []struct {
 			BucketSeconds int64 `msgpack:"bucketSeconds"`
 			Metrics       []struct {
-				Value float64 `msgpack:"value"`
-				Min   float64 `msgpack:"min"`
-				Max   float64 `msgpack:"max"`
+				Value   float64 `msgpack:"value"`
+				Samples int64   `msgpack:"samples"`
+				Min     float64 `msgpack:"min"`
+				Max     float64 `msgpack:"max"`
 			} `msgpack:"metrics"`
 		} `msgpack:"samples"`
 	}
@@ -85,7 +86,7 @@ func TestOptionalPulpTelemetryRealWasmAndPrivateBridge(t *testing.T) {
 		t.Fatal(history)
 	}
 	summary := history.Samples[0].Metrics[0]
-	if summary.Min != 1.02 || summary.Max != 1.02 || summary.Value != 1.02 {
+	if summary.Samples != 1 || summary.Min != 1.02 || summary.Max != 1.02 || summary.Value != 1.02 {
 		t.Fatal(summary)
 	}
 	bridge.families.monitorAdmin = true

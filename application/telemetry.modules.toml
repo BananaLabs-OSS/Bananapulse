@@ -3,7 +3,7 @@ target = "wasm32-wasip1+pulp-v1"
 remotes = []
 [[modules]]
 id = "bananalabs/telemetry"
-requirement = "1.0.1"
+requirement = "1.0.2"
 [[modules]]
 id = "bananalabs/game-server"
 requirement = "1.0.0"

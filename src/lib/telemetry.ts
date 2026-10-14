@@ -1,5 +1,5 @@
 /** Optional telemetry is independent of status quorum; only configured numeric fields are public. */
-export interface PublicMetric { id: string; label: string; unit: string; value: number; min?: number; max?: number }
+export interface PublicMetric { id: string; label: string; unit: string; value: number; min?: number; max?: number; samples?: number }
 export interface TelemetryView { id: string; componentId: string; unavailable: boolean; observedAt?: number; metrics: PublicMetric[] }
 export interface Module { id: string; componentId: string; displayComponentId?: string; transport?: 'http' | 'pulp'; url?: string; historyUrl?: string; publicHistory?: boolean; enabled: boolean; publicMetrics: string[] }
 export function moduleDefinitions(raw: string | undefined): Module[] {

@@ -413,10 +413,10 @@ func (o *Owner) bucketHistory(q Query) ([]HistorySample, error) {
 	cursor := q.Now + 1
 	bytes := 0
 	for len(result) < 720 {
-		rows, err := o.db.Query(`SELECT bucket, json_group_array(json_object('id',id,'label',label,'unit',unit,'value',mean,'min',low,'max',high)) FROM (
+		rows, err := o.db.Query(`SELECT bucket, json_group_array(json_object('id',id,'label',label,'unit',unit,'value',mean,'min',low,'max',high,'samples',n)) FROM (
    SELECT CAST(at / ? AS INTEGER) AS bucket, json_extract(j.value,'$.id') AS id,
     json_extract(j.value,'$.label') AS label, json_extract(j.value,'$.unit') AS unit,
-    AVG(json_extract(j.value,'$.value')) AS mean, MIN(json_extract(j.value,'$.value')) AS low, MAX(json_extract(j.value,'$.value')) AS high
+    AVG(json_extract(j.value,'$.value')) AS mean, MIN(json_extract(j.value,'$.value')) AS low, MAX(json_extract(j.value,'$.value')) AS high, COUNT(*) AS n
    FROM telemetry_samples, json_each(metrics) AS j WHERE module=? AND at>=? AND at<?
    GROUP BY bucket,id,label,unit ORDER BY bucket DESC LIMIT 512
   ) GROUP BY bucket ORDER BY bucket DESC LIMIT 16`, q.BucketSeconds, q.ModuleID, q.Since, cursor)

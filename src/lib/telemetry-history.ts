@@ -17,7 +17,7 @@ export function filterHistory(module: Module, payload: unknown, since: number, u
   for (const sample of payload) {
     if (!sample || !Number.isInteger(sample.observedAt) || sample.observedAt < since || sample.observedAt > until || !Array.isArray(sample.metrics) || sample.metrics.length > 32) continue;
     const metrics: PublicMetric[] = sample.metrics.filter((m: any) => m && module.publicMetrics.includes(m.id) && typeof m.label === 'string' && m.label.length <= 80 && typeof m.unit === 'string' && m.unit.length <= 32 && Number.isFinite(m.value) && typeof m.value === 'number')
-      .map((m: any) => ({ id: m.id, label: m.label, unit: m.unit, value: m.value, ...(Number.isFinite(m.min) && Number.isFinite(m.max) && m.min <= m.value && m.max >= m.value ? {min:m.min,max:m.max} : {}) }));
+      .map((m: any) => ({ id: m.id, label: m.label, unit: m.unit, value: m.value, ...(Number.isInteger(m.samples) && m.samples>0 && m.samples<=1000000 ? {samples:m.samples} : {}), ...(Number.isFinite(m.min) && Number.isFinite(m.max) && m.min <= m.value && m.max >= m.value ? {min:m.min,max:m.max} : {}) }));
     if (metrics.length) samples.push({ observedAt: sample.observedAt, ...(Number.isInteger(sample.bucketSeconds) && sample.bucketSeconds>=60 && sample.bucketSeconds<=3600 ? {bucketSeconds:sample.bucketSeconds} : {}), metrics });
   }
   return samples;
@@ -55,7 +55,7 @@ export async function publicTelemetryHistory(componentIds: string[], now = Math.
       }
       // Prefer raw samples over summaries for the most recent hour.
       const rawStart = Math.min(...[...samples.values()].filter(s=>!s.bucketSeconds).map(s=>s.observedAt));
-      for (const [at,sample] of samples) if(sample.bucketSeconds && at>=rawStart) samples.delete(at);
+      for (const [at,sample] of samples) if(sample.bucketSeconds && at+sample.bucketSeconds>rawStart) samples.delete(at);
     } catch { unavailable = true; }
     const value = { id: module.id, unavailable, truncated, samples: [...samples.values()].sort((a,b)=>a.observedAt-b.observedAt) };
     if (cache.size > 32) cache.clear();

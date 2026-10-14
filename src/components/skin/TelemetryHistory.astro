@@ -1,24 +1,26 @@
 ---
 import type { HistoryView } from '../../lib/telemetry-history';
-interface Props { histories: HistoryView[] }
+interface Props { histories: HistoryView[]; componentIds: string[] }
 const histories = Astro.props.histories;
 const json = JSON.stringify(histories).replace(/</g, '\\u003c');
 ---
-{histories.length > 0 && <section class="telemetry-history" aria-label="Performance history">
+{histories.length > 0 && <section class="telemetry-history" data-components={Astro.props.componentIds.join(' ')} aria-label="Performance history">
   <div class="history-heading"><h3>Performance history</h3><label>Period <select class="history-period"><option value="3600">1 hour</option><option value="21600" selected>6 hours</option><option value="86400">24 hours</option><option value="604800">7 days</option></select></label><button class="history-download" type="button">Download CSV</button></div>
   <p class="history-note">Past hour: individual checks. Older data: 15-minute averages with minimum–maximum ranges. Gaps mean no recorded samples. All times UTC.</p>
   {histories.some(h => h.unavailable) && <p>Some history is temporarily unavailable. Saved samples below may be incomplete.</p>}
   {histories.some(h => h.truncated) && <p>History reached its response limit; the oldest part of this period may be incomplete.</p>}
   <p class="history-coverage"></p><div class="history-charts"></div>
   <details class="history-table"><summary>Recent samples</summary><div class="history-table-scroll"><table><thead><tr><th>UTC time</th><th>Metric</th><th>Value</th><th>Range</th></tr></thead><tbody></tbody></table></div></details>
+  <details class="daily-breakdown" open><summary>Daily and hourly numbers</summary><p class="history-note">Open a day for hourly averages, ranges and recorded-check counts. Empty hours have no data.</p><div class="daily-days"></div></details>
   <noscript>Enable JavaScript to explore graphs and download history.</noscript>
   <script is:inline type="application/json" class="history-data" set:html={json}></script>
 </section>}
 <script>
 import { formatMetric, type PublicMetric } from '../../lib/telemetry';
+import { dailySummaries, type DaySummary, type MetricSummary } from '../../lib/telemetry-periods';
 import type { HistoryView } from '../../lib/telemetry-history';
 const ns='http://www.w3.org/2000/svg';
-type Point = {at:number;bucket:number;metric:PublicMetric};
+type Point = {moduleId:string;at:number;bucket:number;metric:PublicMetric};
 function utc(at:number) { return new Date(at*1000).toISOString().replace('T',' ').replace('.000Z',' UTC'); }
 function svgElement(name:string,attrs:Record<string,string|number>) {const el=document.createElementNS(ns,name);for(const [k,v] of Object.entries(attrs)) el.setAttribute(k,String(v));return el;}
 for(const panel of document.querySelectorAll<HTMLElement>('.telemetry-history')) {
@@ -27,16 +29,48 @@ for(const panel of document.querySelectorAll<HTMLElement>('.telemetry-history'))
  const container=panel.querySelector<HTMLElement>('.history-charts')!;
  const coverage=panel.querySelector<HTMLElement>('.history-coverage')!;
  const tbody=panel.querySelector('tbody')!;
+
+ const days=dailySummaries(histories);
+ const dailyContainer=panel.querySelector('.daily-days')!;
+ function metricText(metric:MetricSummary) {return `${formatMetric(metric)} average · ${formatMetric({...metric,value:metric.min})}–${formatMetric({...metric,value:metric.max})} · ${metric.samples} checks`;}
+ function dayTable(day:DaySummary) {
+  const table=document.createElement('table');table.className='day-metrics';
+  for(const metric of day.metrics) {const row=document.createElement('tr');const name=document.createElement('th');name.textContent=metric.label;const value=document.createElement('td');value.textContent=metricText(metric);row.append(name,value);table.append(row);}
+  if(!day.metrics.length) {const row=document.createElement('tr'),cell=document.createElement('td');cell.textContent='No recorded metric data for this day.';row.append(cell);table.append(row);}
+  return table;
+ }
+ for(const day of days) {
+  const item=document.createElement('details');item.className='daily-day';item.dataset.date=day.date;
+  const heading=document.createElement('summary');heading.textContent=`${day.date} UTC · ${day.metrics.length ? 'Recorded stats' : 'No data'}`;heading.title=day.metrics.map(m=>`${m.label}: ${metricText(m)}`).join('\n')||'No data';
+  item.append(heading,dayTable(day));
+  const scroll=document.createElement('div');scroll.className='history-table-scroll';const hours=document.createElement('table');const header=document.createElement('tr');
+  const labels=['Hour UTC',...day.metrics.map(m=>m.label)];for(const label of labels){const th=document.createElement('th');th.textContent=label;header.append(th);}hours.append(header);
+  for(const hour of day.hours) {const row=document.createElement('tr');const label=document.createElement('th');label.textContent=String(hour.hour).padStart(2,'0')+':00';row.append(label);
+   for(const metric of day.metrics) {const cell=document.createElement('td');const found=hour.metrics.find(m=>m.id===metric.id);cell.textContent=found ? metricText(found) : 'No data';row.append(cell);}
+   if(!day.metrics.length){const cell=document.createElement('td');cell.textContent='No data';row.append(cell);}hours.append(row);
+  }
+  scroll.append(hours);item.append(scroll);dailyContainer.append(item);
+ }
+ window.addEventListener('pulse:day-selected',event=>{
+  const detail=(event as CustomEvent<{date:string;componentIds:string[]}>).detail;
+  const ids=(panel.dataset.components??'').split(' ');if(!detail.componentIds.some(id=>ids.includes(id)))return;
+  const target=document.getElementById('daysel');if(!target)return;
+  const day=days.find(day=>day.date===detail.date);const holder=document.createElement('div');holder.className='day-metric-preview';
+  const title=document.createElement('h4');title.textContent='Recorded daily numbers';holder.append(title);
+  holder.append(dayTable(day??{date:detail.date,metrics:[],hours:[]}));
+  if(day?.metrics.length) {const button=document.createElement('button');button.type='button';button.textContent='Show hourly numbers';button.addEventListener('click',()=>{const item=dailyContainer.querySelector<HTMLDetailsElement>(`details[data-date="${day.date}"]`);if(item){item.open=true;item.scrollIntoView({behavior:'smooth',block:'start'});}});holder.append(button);}
+  target.querySelector('.day-metric-preview')?.remove();target.append(holder);
+ });
  let current:Point[]=[];
  function render() {
   const end=Math.floor(Date.now()/1000),start=end-Number(period.value);
-  current=histories.flatMap(h=>h.samples.flatMap(s=>s.observedAt>=start && s.observedAt<=end ? s.metrics.filter(m=>m.unit!=='boolean').map(metric=>({at:s.observedAt,bucket:s.bucketSeconds??0,metric})) : []));
+  current=histories.flatMap(h=>h.samples.flatMap(s=>s.observedAt>=start && s.observedAt<=end ? s.metrics.filter(m=>m.unit!=='boolean').map(metric=>({moduleId:h.id,at:s.observedAt,bucket:s.bucketSeconds??0,metric})) : []));
   container.replaceChildren();tbody.replaceChildren();
   const times=current.map(p=>p.at);
   coverage.textContent=times.length ? `Recorded coverage: ${utc(Math.min(...times))} to ${utc(Math.max(...times))}.` : 'No recorded samples in this period yet.';
-  const ids=[...new Set(current.map(p=>p.metric.id))];
+  const ids=[...new Set(current.map(p=>`${p.moduleId}/${p.metric.id}`))];
   for(const id of ids) {
-   const points=current.filter(p=>p.metric.id===id).sort((a,b)=>a.at-b.at);
+   const points=current.filter(p=>`${p.moduleId}/${p.metric.id}`===id).sort((a,b)=>a.at-b.at);
    const card=document.createElement('article');card.className='history-chart';
    const title=document.createElement('h4');title.textContent=points[0].metric.label;
    const latest=points[points.length-1];const summary=document.createElement('p');summary.className='chart-summary';
@@ -80,12 +114,13 @@ for(const panel of document.querySelectorAll<HTMLElement>('.telemetry-history'))
  period.addEventListener('change',render);
  panel.querySelector('.history-download')!.addEventListener('click',()=>{
   const quote=(v:unknown)=>'"'+String(v).replace(/"/g,'""')+'"';
-  const rows=[['UTC time','Metric','Unit','Value','Minimum','Maximum','Bucket seconds'],...current.map(p=>[utc(p.at),p.metric.id,p.metric.unit,p.metric.value,p.metric.min??p.metric.value,p.metric.max??p.metric.value,p.bucket])];
+  const rows=[['UTC time','Module','Metric','Unit','Value','Minimum','Maximum','Bucket seconds','Recorded checks'],...current.map(p=>[utc(p.at),p.moduleId,p.metric.id,p.metric.unit,p.metric.value,p.metric.min??p.metric.value,p.metric.max??p.metric.value,p.bucket,p.metric.samples??1])];
   const url=URL.createObjectURL(new Blob([rows.map(row=>row.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='performance-history.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  });
  render();
 }
 </script>
 <style>
+.daily-breakdown{margin-top:1.2rem}.daily-days :global(.daily-day){margin:.6rem 0;padding:.6rem;border:1px solid var(--border,#ddd);border-radius:.4rem}.daily-days :global(summary){cursor:pointer}.daily-days :global(.history-table-scroll){margin-top:.6rem}.daily-days :global(table){width:100%;font-size:.75rem;border-collapse:collapse}.daily-days :global(td),.daily-days :global(th){padding:.5rem;text-align:left;border-bottom:1px solid var(--border,#ddd)}:global(.day-metric-preview){margin:1rem 0}:global(.day-metrics){width:100%;font-size:.8rem}:global(.day-metrics th),:global(.day-metrics td){padding:.35rem;text-align:left}
 .telemetry-history{margin-top:1.5rem;border-top:1px solid var(--border,#ddd);padding-top:1rem}.history-heading{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}.history-heading h3{margin:0 auto 0 0}.history-heading select,.history-heading button{font:inherit;padding:.4rem .6rem;border:1px solid var(--border,#aaa);border-radius:.4rem;background:var(--bg,transparent);color:inherit}.history-note,.history-coverage{font-size:.8rem;opacity:.75}.history-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:1rem}.history-charts :global(.history-chart){min-width:0;padding:.8rem;border:1px solid var(--border,#ddd);border-radius:.5rem}.history-charts :global(h4){margin:0 0 .4rem}.history-charts :global(svg){width:100%;color:inherit;touch-action:pan-y}.history-charts :global(text){fill:currentColor;font-size:10px}.history-charts :global(.chart-grid){stroke:currentColor;opacity:.12}.history-charts :global(.chart-line){fill:none;stroke:#3b82f6;stroke-width:2}.history-charts :global(.chart-dot){fill:#3b82f6}.history-charts :global(.chart-band){fill:#3b82f6;opacity:.18}.history-charts :global(.chart-cursor){stroke:currentColor;stroke-dasharray:3 3;opacity:.6}.history-charts :global(.chart-summary),.history-charts :global(.chart-detail){font-size:.75rem;margin:.4rem 0;min-height:2.2em}.history-table{margin-top:1rem}.history-table-scroll{overflow:auto;max-height:25rem}table{width:100%;font-size:.8rem;border-collapse:collapse}th,td{padding:.4rem;text-align:left;border-bottom:1px solid var(--border,#ddd)}
 </style>

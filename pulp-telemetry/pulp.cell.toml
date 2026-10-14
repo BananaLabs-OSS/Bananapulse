@@ -7,6 +7,6 @@ call_timeout_ms = 30000
 provides = ["telemetry.v1.configure", "telemetry.v1.ingest", "telemetry.v1.snapshot", "telemetry.v1.history", "telemetry.v1.pending", "telemetry.v1.ack", "telemetry.v1.import"]
 consumes = []
 capabilities = ["storage.sqlite"]
-wasm_sha256 = "612b2a997d097da635b229c1cd20cdf74a49b63870c13e2c67ec940dac27fa6d"
+wasm_sha256 = "fb536bc3bff8561dc18e1b93deab4860a68239c0fc956f2840f2f4984b2a8ef2"
 [config]
 storage_namespace = "bananapulse/telemetry/v1"

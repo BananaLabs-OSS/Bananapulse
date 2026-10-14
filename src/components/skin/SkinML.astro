@@ -283,6 +283,7 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
         ? hits.map(incidentCard).join('')
         : `<div class="row static" style="--leg:var(--line2)"><div><div class="nm">No incidents</div><div class="kd">nothing recorded on this day</div></div></div>`);
     (panel as HTMLElement).hidden = false;
+    window.dispatchEvent(new CustomEvent('pulse:day-selected', { detail: { date: barEl.getAttribute('data-date'), componentIds: (barsEl.getAttribute('data-sub') || '').split(' ').filter(Boolean) } }));
   }
 
   function nearest(barsEl: Element, x: number) {

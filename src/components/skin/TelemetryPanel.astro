@@ -12,7 +12,7 @@ const [modules, histories] = await Promise.all([publicTelemetry(Astro.props.comp
     {module.metrics.some(metric => metric.unit === 'reported') && <p class="metric-note">Values marked by the provider as reported load are not total host CPU percentages.</p>}
     {module.observedAt && <small>Updated <time datetime={new Date(module.observedAt * 1000).toISOString()}>{new Date(module.observedAt * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC')}</time></small>}
   </div>)}
-<TelemetryHistory histories={histories} />
+<TelemetryHistory histories={histories} componentIds={Astro.props.componentIds} />
 </details>}
 <style>
 .telemetry-panel {margin:1rem 0;padding:1rem;border:1px solid var(--border,#ddd);border-radius:.5rem;color:var(--fg,inherit)}

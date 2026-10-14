@@ -267,7 +267,7 @@ func TestWeekHistoryBucketsPreserveExtremesAndGaps(t *testing.T) {
 			metric = m
 		}
 	}
-	if metric.Value != 1 || metric.Min == nil || *metric.Min != .5 || metric.Max == nil || *metric.Max != 1.5 {
+	if metric.Samples != 3 || metric.Value != 1 || metric.Min == nil || *metric.Min != .5 || metric.Max == nil || *metric.Max != 1.5 {
 		t.Fatal(metric)
 	}
 	if rows[0].BucketSeconds != 900 || rows[1].At-rows[0].At <= 900 {
