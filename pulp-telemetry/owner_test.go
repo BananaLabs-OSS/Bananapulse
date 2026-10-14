@@ -249,3 +249,35 @@ func TestHistoryIsByteBoundedAndKeepsNewestSamples(t *testing.T) {
 		t.Fatalf("history count=%d bytes=%d error=%v", len(history), len(encoded), e)
 	}
 }
+
+func TestWeekHistoryBucketsPreserveExtremesAndGaps(t *testing.T) {
+	o, c := testOwner(t)
+	for _, s := range []Sample{sample(c, 100000, .5), sample(c, 100030, 1), sample(c, 100060, 1.5), sample(c, 105000, .9)} {
+		if err := o.ingest(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rows, err := o.history(Query{Version: Version, ModuleID: c.ID, Now: 600000, Since: 1, BucketSeconds: 900})
+	if err != nil || len(rows) != 2 {
+		t.Fatal(rows, err)
+	}
+	metric := rows[0].Metrics[0]
+	for _, m := range rows[0].Metrics {
+		if m.ID == "speed" {
+			metric = m
+		}
+	}
+	if metric.Value != 1 || metric.Min == nil || *metric.Min != .5 || metric.Max == nil || *metric.Max != 1.5 {
+		t.Fatal(metric)
+	}
+	if rows[0].BucketSeconds != 900 || rows[1].At-rows[0].At <= 900 {
+		t.Fatal("gap lost", rows)
+	}
+	if _, err = o.history(Query{Version: Version, Now: 600000, Since: 1, BucketSeconds: 60}); err == nil {
+		t.Fatal("unbounded bucket request accepted")
+	}
+	raw, err := o.history(Query{Version: Version, ModuleID: c.ID, Now: 600000, Since: 1})
+	if err != nil || len(raw) != 0 {
+		t.Fatal("raw history must retain day bound", raw, err)
+	}
+}

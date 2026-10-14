@@ -1,7 +1,9 @@
 ---
 import { publicTelemetry, formatMetric } from '../../lib/telemetry';
+import { publicTelemetryHistory } from '../../lib/telemetry-history';
+import TelemetryHistory from './TelemetryHistory.astro';
 interface Props { componentIds: string[] }
-const modules = await publicTelemetry(Astro.props.componentIds);
+const [modules, histories] = await Promise.all([publicTelemetry(Astro.props.componentIds), publicTelemetryHistory(Astro.props.componentIds)]);
 ---
 {modules.length > 0 && <details class="telemetry-panel" open>
   <summary>Live stats</summary>
@@ -10,6 +12,7 @@ const modules = await publicTelemetry(Astro.props.componentIds);
     {module.metrics.some(metric => metric.unit === 'reported') && <p class="metric-note">Values marked by the provider as reported load are not total host CPU percentages.</p>}
     {module.observedAt && <small>Updated <time datetime={new Date(module.observedAt * 1000).toISOString()}>{new Date(module.observedAt * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC')}</time></small>}
   </div>)}
+<TelemetryHistory histories={histories} />
 </details>}
 <style>
 .telemetry-panel {margin:1rem 0;padding:1rem;border:1px solid var(--border,#ddd);border-radius:.5rem;color:var(--fg,inherit)}

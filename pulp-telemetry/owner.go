@@ -252,6 +252,9 @@ func (o *Owner) snapshot(q Query) (Snapshot, error) {
 	return result, err
 }
 func (o *Owner) history(q Query) ([]HistorySample, error) {
+	if q.BucketSeconds != 0 {
+		return o.bucketHistory(q)
+	}
 	if q.Version != Version || q.Now <= 0 {
 		return nil, errors.New("invalid telemetry query")
 	}
@@ -392,4 +395,74 @@ func (o *Owner) importHistory(in Import) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// bucketHistory provides bounded week-long summaries without moving raw history to the frontend.
+func (o *Owner) bucketHistory(q Query) ([]HistorySample, error) {
+	if q.Version != Version || q.Now <= 0 || q.BucketSeconds < 60 || q.BucketSeconds > 3600 {
+		return nil, errors.New("invalid history bucket")
+	}
+	if q.Since < q.Now-7*86400 {
+		q.Since = q.Now - 7*86400
+	}
+	// A week contains at most 672 quarter-hour buckets. Each query materializes only 16 buckets.
+	if (q.Now-q.Since)/q.BucketSeconds > 720 {
+		return nil, errors.New("too many history buckets")
+	}
+	result := []HistorySample{}
+	cursor := q.Now + 1
+	bytes := 0
+	for len(result) < 720 {
+		rows, err := o.db.Query(`SELECT bucket, json_group_array(json_object('id',id,'label',label,'unit',unit,'value',mean,'min',low,'max',high)) FROM (
+   SELECT CAST(at / ? AS INTEGER) AS bucket, json_extract(j.value,'$.id') AS id,
+    json_extract(j.value,'$.label') AS label, json_extract(j.value,'$.unit') AS unit,
+    AVG(json_extract(j.value,'$.value')) AS mean, MIN(json_extract(j.value,'$.value')) AS low, MAX(json_extract(j.value,'$.value')) AS high
+   FROM telemetry_samples, json_each(metrics) AS j WHERE module=? AND at>=? AND at<?
+   GROUP BY bucket,id,label,unit ORDER BY bucket DESC LIMIT 512
+  ) GROUP BY bucket ORDER BY bucket DESC LIMIT 16`, q.BucketSeconds, q.ModuleID, q.Since, cursor)
+		if err != nil {
+			return nil, err
+		}
+		batch := []HistorySample{}
+		for rows.Next() {
+			var bucket int64
+			var raw string
+			if err = rows.Scan(&bucket, &raw); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			item := HistorySample{At: bucket * q.BucketSeconds, BucketSeconds: q.BucketSeconds}
+			if err = json.Unmarshal([]byte(raw), &item.Metrics); err != nil {
+				rows.Close()
+				return nil, err
+			}
+			batch = append(batch, item)
+		}
+		err = rows.Err()
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		if len(batch) == 0 {
+			break
+		}
+		full := false
+		for _, item := range batch {
+			encoded, _ := json.Marshal(item)
+			if bytes+len(encoded)+2 > 512<<10 {
+				full = true
+				break
+			}
+			result = append(result, item)
+			bytes += len(encoded) + 1
+			cursor = item.At
+		}
+		if full || len(batch) < 16 {
+			break
+		}
+	}
+	for i, j := 0, len(result)-1; i < j; i, j = i+1, j-1 {
+		result[i], result[j] = result[j], result[i]
+	}
+	return result, nil
 }

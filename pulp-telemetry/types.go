@@ -2,10 +2,12 @@ package main
 
 // All provider contracts are versioned; secrets and raw provider payloads are never persisted.
 type Metric struct {
-	ID    string  `json:"id" msgpack:"id"`
-	Label string  `json:"label" msgpack:"label"`
-	Unit  string  `json:"unit" msgpack:"unit"`
-	Value float64 `json:"value" msgpack:"value"`
+	ID    string   `json:"id" msgpack:"id"`
+	Label string   `json:"label" msgpack:"label"`
+	Unit  string   `json:"unit" msgpack:"unit"`
+	Value float64  `json:"value" msgpack:"value"`
+	Min   *float64 `json:"min,omitempty" msgpack:"min,omitempty"`
+	Max   *float64 `json:"max,omitempty" msgpack:"max,omitempty"`
 }
 type Policy struct {
 	Enabled      bool    `json:"enabled" msgpack:"enabled"`
@@ -39,10 +41,11 @@ type Sample struct {
 	Metrics     []Metric `json:"metrics" msgpack:"metrics"`
 }
 type Query struct {
-	Version  string `json:"version" msgpack:"version"`
-	ModuleID string `json:"moduleId" msgpack:"moduleId"`
-	Now      int64  `json:"now" msgpack:"now"`
-	Since    int64  `json:"since" msgpack:"since"`
+	BucketSeconds int64  `json:"bucketSeconds,omitempty" msgpack:"bucketSeconds,omitempty"`
+	Version       string `json:"version" msgpack:"version"`
+	ModuleID      string `json:"moduleId" msgpack:"moduleId"`
+	Now           int64  `json:"now" msgpack:"now"`
+	Since         int64  `json:"since" msgpack:"since"`
 }
 type State struct {
 	BadSince   int64 `json:"badSince,omitempty" msgpack:"badSince,omitempty"`
@@ -63,8 +66,9 @@ type Snapshot struct {
 	Metrics      []Metric `json:"metrics" msgpack:"metrics"`
 }
 type HistorySample struct {
-	At      int64    `json:"observedAt" msgpack:"observedAt"`
-	Metrics []Metric `json:"metrics" msgpack:"metrics"`
+	BucketSeconds int64    `json:"bucketSeconds,omitempty" msgpack:"bucketSeconds,omitempty"`
+	At            int64    `json:"observedAt" msgpack:"observedAt"`
+	Metrics       []Metric `json:"metrics" msgpack:"metrics"`
 }
 type Pending struct {
 	ID      string `msgpack:"id"`

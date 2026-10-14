@@ -1,0 +1,91 @@
+---
+import type { HistoryView } from '../../lib/telemetry-history';
+interface Props { histories: HistoryView[] }
+const histories = Astro.props.histories;
+const json = JSON.stringify(histories).replace(/</g, '\\u003c');
+---
+{histories.length > 0 && <section class="telemetry-history" aria-label="Performance history">
+  <div class="history-heading"><h3>Performance history</h3><label>Period <select class="history-period"><option value="3600">1 hour</option><option value="21600" selected>6 hours</option><option value="86400">24 hours</option><option value="604800">7 days</option></select></label><button class="history-download" type="button">Download CSV</button></div>
+  <p class="history-note">Past hour: individual checks. Older data: 15-minute averages with minimum–maximum ranges. Gaps mean no recorded samples. All times UTC.</p>
+  {histories.some(h => h.unavailable) && <p>Some history is temporarily unavailable. Saved samples below may be incomplete.</p>}
+  {histories.some(h => h.truncated) && <p>History reached its response limit; the oldest part of this period may be incomplete.</p>}
+  <p class="history-coverage"></p><div class="history-charts"></div>
+  <details class="history-table"><summary>Recent samples</summary><div class="history-table-scroll"><table><thead><tr><th>UTC time</th><th>Metric</th><th>Value</th><th>Range</th></tr></thead><tbody></tbody></table></div></details>
+  <noscript>Enable JavaScript to explore graphs and download history.</noscript>
+  <script is:inline type="application/json" class="history-data" set:html={json}></script>
+</section>}
+<script>
+import { formatMetric, type PublicMetric } from '../../lib/telemetry';
+import type { HistoryView } from '../../lib/telemetry-history';
+const ns='http://www.w3.org/2000/svg';
+type Point = {at:number;bucket:number;metric:PublicMetric};
+function utc(at:number) { return new Date(at*1000).toISOString().replace('T',' ').replace('.000Z',' UTC'); }
+function svgElement(name:string,attrs:Record<string,string|number>) {const el=document.createElementNS(ns,name);for(const [k,v] of Object.entries(attrs)) el.setAttribute(k,String(v));return el;}
+for(const panel of document.querySelectorAll<HTMLElement>('.telemetry-history')) {
+ const histories:HistoryView[]=JSON.parse(panel.querySelector('.history-data')!.textContent!);
+ const period=panel.querySelector<HTMLSelectElement>('.history-period')!;
+ const container=panel.querySelector<HTMLElement>('.history-charts')!;
+ const coverage=panel.querySelector<HTMLElement>('.history-coverage')!;
+ const tbody=panel.querySelector('tbody')!;
+ let current:Point[]=[];
+ function render() {
+  const end=Math.floor(Date.now()/1000),start=end-Number(period.value);
+  current=histories.flatMap(h=>h.samples.flatMap(s=>s.observedAt>=start && s.observedAt<=end ? s.metrics.filter(m=>m.unit!=='boolean').map(metric=>({at:s.observedAt,bucket:s.bucketSeconds??0,metric})) : []));
+  container.replaceChildren();tbody.replaceChildren();
+  const times=current.map(p=>p.at);
+  coverage.textContent=times.length ? `Recorded coverage: ${utc(Math.min(...times))} to ${utc(Math.max(...times))}.` : 'No recorded samples in this period yet.';
+  const ids=[...new Set(current.map(p=>p.metric.id))];
+  for(const id of ids) {
+   const points=current.filter(p=>p.metric.id===id).sort((a,b)=>a.at-b.at);
+   const card=document.createElement('article');card.className='history-chart';
+   const title=document.createElement('h4');title.textContent=points[0].metric.label;
+   const latest=points[points.length-1];const summary=document.createElement('p');summary.className='chart-summary';
+   const lo=Math.min(...points.map(p=>p.metric.min??p.metric.value)),hi=Math.max(...points.map(p=>p.metric.max??p.metric.value));
+   summary.textContent=`Latest ${formatMetric(latest.metric)} · Min ${formatMetric({...latest.metric,value:lo})} · Max ${formatMetric({...latest.metric,value:hi})}`;
+   let bottom=Math.min(0,lo),top=hi; if(top===bottom) top=bottom+1;
+   const x=(at:number)=>44+(at-start)/(end-start)*636, y=(value:number)=>150-(value-bottom)/(top-bottom)*126;
+   const svg=svgElement('svg',{viewBox:'0 0 700 190',role:'img',tabindex:'0','aria-label':`${points[0].metric.label} history. Use arrow keys to inspect samples.`});
+   for(const value of [bottom,(bottom+top)/2,top]) {
+    svg.append(svgElement('line',{x1:44,x2:680,y1:y(value),y2:y(value),class:'chart-grid'}));
+    const text=svgElement('text',{x:40,y:y(value)+4,'text-anchor':'end'});text.textContent=value.toLocaleString('en',{maximumFractionDigits:2});svg.append(text);
+   }
+   const intervals=points.slice(1).map((p,i)=>!p.bucket && !points[i].bucket ? p.at-points[i].at : 0).filter(n=>n>0).sort((a,b)=>a-b);
+   const interval=intervals.length ? intervals[Math.floor(intervals.length/2)] : 30;
+   const segments:Point[][]=[];
+   for(const point of points) {
+    const segment=segments[segments.length-1],previous=segment?.[segment.length-1];
+    if(!previous || point.at-previous.at>Math.max(previous.bucket,point.bucket,interval)*1.8) segments.push([point]);else segment.push(point);
+   }
+   for(const segment of segments) {
+    const band=segment.map(p=>`${x(p.at)},${y(p.metric.max??p.metric.value)}`).concat([...segment].reverse().map(p=>`${x(p.at)},${y(p.metric.min??p.metric.value)}`)).join(' ');
+    svg.append(svgElement('polygon',{points:band,class:'chart-band'}));
+    svg.append(svgElement('polyline',{points:segment.map(p=>`${x(p.at)},${y(p.metric.value)}`).join(' '),class:'chart-line'}));
+    if(segment.length===1) svg.append(svgElement('circle',{cx:x(segment[0].at),cy:y(segment[0].metric.value),r:3,class:'chart-dot'}));
+   }
+   for(const [at,anchor] of [[start,'start'],[end,'end']] as const) {
+    const label=svgElement('text',{x:x(at),y:177,'text-anchor':anchor});label.textContent=new Date(at*1000).toISOString().slice(5,16).replace('T',' ');svg.append(label);
+   }
+   const cursor=svgElement('line',{x1:0,x2:0,y1:18,y2:154,class:'chart-cursor',visibility:'hidden'});svg.append(cursor);
+   const detail=document.createElement('p');detail.className='chart-detail';detail.setAttribute('aria-live','polite');detail.textContent='Hover, tap or use arrow keys for a sample.';
+   let index=points.length-1;
+   function inspect(i:number) {index=Math.max(0,Math.min(points.length-1,i));const p=points[index];cursor.setAttribute('x1',String(x(p.at)));cursor.setAttribute('x2',String(x(p.at)));cursor.setAttribute('visibility','visible');detail.textContent=`${utc(p.at)} · ${formatMetric(p.metric)}${p.bucket ? ` average · range ${formatMetric({...p.metric,value:p.metric.min??p.metric.value})}–${formatMetric({...p.metric,value:p.metric.max??p.metric.value})}`:''}`;}
+   svg.addEventListener('pointermove',event=>{const e=event as PointerEvent;const r=svg.getBoundingClientRect();const at=start+((e.clientX-r.left)/r.width*700-44)/636*(end-start);let nearest=0;for(let i=1;i<points.length;i++) if(Math.abs(points[i].at-at)<Math.abs(points[nearest].at-at)) nearest=i;inspect(nearest);});
+   svg.addEventListener('keydown',event=>{const e=event as KeyboardEvent;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();inspect(index+(e.key==='ArrowRight'?1:-1));}});
+   card.append(title,summary,svg,detail);container.append(card);
+  }
+  for(const p of [...current].sort((a,b)=>b.at-a.at).slice(0,40)) {
+   const row=document.createElement('tr');for(const value of [utc(p.at),p.metric.label,formatMetric(p.metric),p.bucket ? `${p.metric.min??p.metric.value}–${p.metric.max??p.metric.value}`:'Individual check']) {const td=document.createElement('td');td.textContent=value;row.append(td);}tbody.append(row);
+  }
+ }
+ period.addEventListener('change',render);
+ panel.querySelector('.history-download')!.addEventListener('click',()=>{
+  const quote=(v:unknown)=>'"'+String(v).replace(/"/g,'""')+'"';
+  const rows=[['UTC time','Metric','Unit','Value','Minimum','Maximum','Bucket seconds'],...current.map(p=>[utc(p.at),p.metric.id,p.metric.unit,p.metric.value,p.metric.min??p.metric.value,p.metric.max??p.metric.value,p.bucket])];
+  const url=URL.createObjectURL(new Blob([rows.map(row=>row.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='performance-history.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ });
+ render();
+}
+</script>
+<style>
+.telemetry-history{margin-top:1.5rem;border-top:1px solid var(--border,#ddd);padding-top:1rem}.history-heading{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}.history-heading h3{margin:0 auto 0 0}.history-heading select,.history-heading button{font:inherit;padding:.4rem .6rem;border:1px solid var(--border,#aaa);border-radius:.4rem;background:var(--bg,transparent);color:inherit}.history-note,.history-coverage{font-size:.8rem;opacity:.75}.history-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:1rem}.history-charts :global(.history-chart){min-width:0;padding:.8rem;border:1px solid var(--border,#ddd);border-radius:.5rem}.history-charts :global(h4){margin:0 0 .4rem}.history-charts :global(svg){width:100%;color:inherit;touch-action:pan-y}.history-charts :global(text){fill:currentColor;font-size:10px}.history-charts :global(.chart-grid){stroke:currentColor;opacity:.12}.history-charts :global(.chart-line){fill:none;stroke:#3b82f6;stroke-width:2}.history-charts :global(.chart-dot){fill:#3b82f6}.history-charts :global(.chart-band){fill:#3b82f6;opacity:.18}.history-charts :global(.chart-cursor){stroke:currentColor;stroke-dasharray:3 3;opacity:.6}.history-charts :global(.chart-summary),.history-charts :global(.chart-detail){font-size:.75rem;margin:.4rem 0;min-height:2.2em}.history-table{margin-top:1rem}.history-table-scroll{overflow:auto;max-height:25rem}table{width:100%;font-size:.8rem;border-collapse:collapse}th,td{padding:.4rem;text-align:left;border-bottom:1px solid var(--border,#ddd)}
+</style>

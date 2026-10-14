@@ -68,6 +68,26 @@ func TestOptionalPulpTelemetryRealWasmAndPrivateBridge(t *testing.T) {
 	}
 	call("bananapulse.telemetry.history.v1", map[string]any{"version": "telemetry.v1", "moduleId": "test", "now": now + 1}, 200)
 
+	var history struct {
+		Samples []struct {
+			BucketSeconds int64 `msgpack:"bucketSeconds"`
+			Metrics       []struct {
+				Value float64 `msgpack:"value"`
+				Min   float64 `msgpack:"min"`
+				Max   float64 `msgpack:"max"`
+			} `msgpack:"metrics"`
+		} `msgpack:"samples"`
+	}
+	if err := client.callRaw(ctx, "bananapulse.telemetry.history.v1", map[string]any{"version": "telemetry.v1", "moduleId": "test", "now": now + 1, "since": now - 7*86400, "bucketSeconds": 900}, &history); err != nil {
+		t.Fatal(err)
+	}
+	if len(history.Samples) != 1 || history.Samples[0].BucketSeconds != 900 {
+		t.Fatal(history)
+	}
+	summary := history.Samples[0].Metrics[0]
+	if summary.Min != 1.02 || summary.Max != 1.02 || summary.Value != 1.02 {
+		t.Fatal(summary)
+	}
 	bridge.families.monitorAdmin = true
 	call(eventMonitorAdminCommand, map[string]any{"version": "monitor.v1", "id": "telemetry-test-component", "kind": "upsert_component", "at_unix": now, "component": map[string]any{"id": "lag-service", "name": "Lag service", "kind": "service", "launched": true, "launched_set": true, "fallback_status": "operational"}}, 200)
 	call(eventMonitorAdminCommand, map[string]any{"version": "monitor.v1", "id": "telemetry-test-source", "kind": "upsert_source", "at_unix": now, "source": map[string]any{"id": "lag-source", "name": "Lag source", "kind": "push", "trusted": true, "weight": 1, "direct_targets": true, "default_ttl_seconds": 120}}, 200)

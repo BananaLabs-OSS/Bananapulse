@@ -8,7 +8,7 @@
     },
     {
       "id": "bananalabs/telemetry",
-      "requirement": "1.0.0"
+      "requirement": "1.0.1"
     }
   ],
   "modules": [
@@ -21,9 +21,9 @@
     },
     {
       "id": "bananalabs/telemetry",
-      "version": "1.0.0",
-      "manifest_digest": "sha256:6e556a61b5bde36f048e954220bc6fa83d6529ea2bc15ff5504d5118a9ac7f75",
-      "artifact_digest": "sha256:80566ec911cc8a02d6996cc814d5061fce27da068c9aa647e3f999f5b4e626ec",
+      "version": "1.0.1",
+      "manifest_digest": "sha256:d1a549a582f887930c98af3da8ffd1863422b152a43e33dcfbdc47ec48767666",
+      "artifact_digest": "sha256:612b2a997d097da635b229c1cd20cdf74a49b63870c13e2c67ec940dac27fa6d",
       "dependencies": null
     }
   ]
