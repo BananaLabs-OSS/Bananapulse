@@ -337,6 +337,8 @@ function buildDayIncidents(t: Tree, id: string, resolved: Incident[]): DayIncide
         severity: i.severity,
         affectedName: affId ? (t.byId.get(affId)?.name ?? affId) : undefined,
         affects: (i.affects ?? []).filter((a) => set.has(a)),
+        startedAt: i.started,
+        resolvedAt: i.resolved ?? undefined,
         start: (i.started ?? today).slice(0, 10),
         end: i.resolved ? i.resolved.slice(0, 10) : today,
       };

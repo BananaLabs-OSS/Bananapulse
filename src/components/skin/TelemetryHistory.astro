@@ -6,121 +6,120 @@ const json = JSON.stringify(histories).replace(/</g, '\\u003c');
 ---
 {histories.length > 0 && <section class="telemetry-history" data-components={Astro.props.componentIds.join(' ')} aria-label="Performance history">
   <div class="history-heading"><h3>Performance history</h3><label>Period <select class="history-period"><option value="3600">1 hour</option><option value="21600" selected>6 hours</option><option value="86400">24 hours</option><option value="604800">7 days</option></select></label><button class="history-download" type="button">Download CSV</button></div>
-  <p class="history-note">Past hour: individual checks. Older data: 15-minute averages with minimum–maximum ranges. Gaps mean no recorded samples. All times UTC.</p>
+  <p class="history-note">Past hour: individual checks. Longer views: 15-minute, hourly or daily averages with minimum–maximum ranges. Gaps mean no recorded samples. All times UTC.</p>
   {histories.some(h => h.unavailable) && <p>Some history is temporarily unavailable. Saved samples below may be incomplete.</p>}
   {histories.some(h => h.truncated) && <p>History reached its response limit; the oldest part of this period may be incomplete.</p>}
   <p class="history-coverage"></p><div class="history-charts"></div>
   <details class="history-table"><summary>Recent samples</summary><div class="history-table-scroll"><table><thead><tr><th>UTC time</th><th>Metric</th><th>Value</th><th>Range</th></tr></thead><tbody></tbody></table></div></details>
-  <details class="daily-breakdown" open><summary>Daily and hourly numbers</summary><p class="history-note">Open a day for hourly averages, ranges and recorded-check counts. Empty hours have no data.</p><div class="daily-days"></div></details>
+  <p class="history-interaction">Hover a day on the uptime strip to see its averages and hourly graphs. Click the day for incidents and stats by hour.</p>
   <noscript>Enable JavaScript to explore graphs and download history.</noscript>
   <script is:inline type="application/json" class="history-data" set:html={json}></script>
 </section>}
 <script>
-import { formatMetric, type PublicMetric } from '../../lib/telemetry';
-import { dailySummaries, type DaySummary, type MetricSummary } from '../../lib/telemetry-periods';
-import type { HistoryView } from '../../lib/telemetry-history';
-const ns='http://www.w3.org/2000/svg';
-type Point = {moduleId:string;at:number;bucket:number;metric:PublicMetric};
-function utc(at:number) { return new Date(at*1000).toISOString().replace('T',' ').replace('.000Z',' UTC'); }
-function svgElement(name:string,attrs:Record<string,string|number>) {const el=document.createElementNS(ns,name);for(const [k,v] of Object.entries(attrs)) el.setAttribute(k,String(v));return el;}
+import {formatMetric} from '../../lib/telemetry';
+import {dailySummaries,type MetricSummary} from '../../lib/telemetry-periods';
+import {dayBreakdown,type DayBreakdown} from '../../lib/telemetry-day';
+import {chartCard,aggregateChartPoints,utc,type ChartPoint,type IncidentBand} from '../../lib/telemetry-chart';
+import type {HistoryView} from '../../lib/telemetry-history';
+import type {DayIncident} from '../../lib/view';
 for(const panel of document.querySelectorAll<HTMLElement>('.telemetry-history')) {
  const histories:HistoryView[]=JSON.parse(panel.querySelector('.history-data')!.textContent!);
+ const incidents:DayIncident[]=JSON.parse(document.getElementById('day-incidents')?.textContent??'[]');
+ const componentIds=(panel.dataset.components??'').split(' ').filter(Boolean);
  const period=panel.querySelector<HTMLSelectElement>('.history-period')!;
  const container=panel.querySelector<HTMLElement>('.history-charts')!;
  const coverage=panel.querySelector<HTMLElement>('.history-coverage')!;
  const tbody=panel.querySelector('tbody')!;
-
  const days=dailySummaries(histories);
- const dailyContainer=panel.querySelector('.daily-days')!;
+ const allPoints:ChartPoint[]=histories.flatMap(history=>history.samples.flatMap(sample=>sample.metrics.map(metric=>({moduleId:history.id,at:sample.observedAt,bucket:sample.bucketSeconds??0,metric}))));
+ let current:ChartPoint[]=[],selectedDate:string|undefined;
+ let inspectHour:((hour:number)=>void)|undefined;
+ const dialog=document.createElement('dialog');dialog.className='history-day-dialog';document.body.append(dialog);
  function metricText(metric:MetricSummary) {return `${formatMetric(metric)} average · ${formatMetric({...metric,value:metric.min})}–${formatMetric({...metric,value:metric.max})} · ${metric.samples} checks`;}
- function dayTable(day:DaySummary) {
+ function dayTable(day:DayBreakdown) {
   const table=document.createElement('table');table.className='day-metrics';
-  for(const metric of day.metrics) {const row=document.createElement('tr');const name=document.createElement('th');name.textContent=metric.label;const value=document.createElement('td');value.textContent=metricText(metric);row.append(name,value);table.append(row);}
-  if(!day.metrics.length) {const row=document.createElement('tr'),cell=document.createElement('td');cell.textContent='No recorded metric data for this day.';row.append(cell);table.append(row);}
+  for(const metric of day.metrics) {const row=document.createElement('tr'),name=document.createElement('th'),value=document.createElement('td');name.textContent=metric.label;value.textContent=metricText(metric);row.append(name,value);table.append(row);}
+  if(!day.metrics.length){const row=document.createElement('tr'),cell=document.createElement('td');cell.textContent='No recorded metric data for this day.';row.append(cell);table.append(row);}
   return table;
  }
- for(const day of days) {
-  const item=document.createElement('details');item.className='daily-day';item.dataset.date=day.date;
-  const heading=document.createElement('summary');heading.textContent=`${day.date} UTC · ${day.metrics.length ? 'Recorded stats' : 'No data'}`;heading.title=day.metrics.map(m=>`${m.label}: ${metricText(m)}`).join('\n')||'No data';
-  item.append(heading,dayTable(day));
-  const scroll=document.createElement('div');scroll.className='history-table-scroll';const hours=document.createElement('table');const header=document.createElement('tr');
-  const labels=['Hour UTC',...day.metrics.map(m=>m.label)];for(const label of labels){const th=document.createElement('th');th.textContent=label;header.append(th);}hours.append(header);
-  for(const hour of day.hours) {const row=document.createElement('tr');const label=document.createElement('th');label.textContent=String(hour.hour).padStart(2,'0')+':00';row.append(label);
-   for(const metric of day.metrics) {const cell=document.createElement('td');const found=hour.metrics.find(m=>m.id===metric.id);cell.textContent=found ? metricText(found) : 'No data';row.append(cell);}
-   if(!day.metrics.length){const cell=document.createElement('td');cell.textContent='No data';row.append(cell);}hours.append(row);
-  }
-  scroll.append(hours);item.append(scroll);dailyContainer.append(item);
- }
- window.addEventListener('pulse:day-selected',event=>{
-  const detail=(event as CustomEvent<{date:string;componentIds:string[]}>).detail;
-  const ids=(panel.dataset.components??'').split(' ');if(!detail.componentIds.some(id=>ids.includes(id)))return;
-  const target=document.getElementById('daysel');if(!target)return;
-  const day=days.find(day=>day.date===detail.date);const holder=document.createElement('div');holder.className='day-metric-preview';
-  const title=document.createElement('h4');title.textContent='Recorded daily numbers';holder.append(title);
-  holder.append(dayTable(day??{date:detail.date,metrics:[],hours:[]}));
-  if(day?.metrics.length) {const button=document.createElement('button');button.type='button';button.textContent='Show hourly numbers';button.addEventListener('click',()=>{const item=dailyContainer.querySelector<HTMLDetailsElement>(`details[data-date="${day.date}"]`);if(item){item.open=true;item.scrollIntoView({behavior:'smooth',block:'start'});}});holder.append(button);}
-  target.querySelector('.day-metric-preview')?.remove();target.append(holder);
- });
- let current:Point[]=[];
+ function getDay(date:string) {return dayBreakdown(date,days.find(day=>day.date===date),incidents,componentIds);}
+ function bands():IncidentBand[] {return incidents.filter(incident=>incident.affects.some(id=>componentIds.includes(id))&&incident.startedAt?.includes('T')).flatMap(incident=>{
+  const from=Date.parse(incident.startedAt!)/1000,until=incident.resolvedAt ? Date.parse(incident.resolvedAt)/1000:Date.now()/1000;
+  return Number.isFinite(from)&&Number.isFinite(until)&&until>=from ? [{id:incident.id,title:incident.title,severity:incident.severity,from,until}]:[];
+ });}
+ function pointsFor(start:number,end:number,bucket:number) {return aggregateChartPoints(allPoints.filter(point=>point.at>=start&&point.at<end&&point.at<=Date.now()/1000),bucket);}
  function render() {
-  const end=Math.floor(Date.now()/1000),start=end-Number(period.value);
-  current=histories.flatMap(h=>h.samples.flatMap(s=>s.observedAt>=start && s.observedAt<=end ? s.metrics.filter(m=>m.unit!=='boolean').map(metric=>({moduleId:h.id,at:s.observedAt,bucket:s.bucketSeconds??0,metric})) : []));
-  container.replaceChildren();tbody.replaceChildren();
-  const times=current.map(p=>p.at);
-  coverage.textContent=times.length ? `Recorded coverage: ${utc(Math.min(...times))} to ${utc(Math.max(...times))}.` : 'No recorded samples in this period yet.';
-  const ids=[...new Set(current.map(p=>`${p.moduleId}/${p.metric.id}`))];
+  const now=Date.now()/1000,span=Number(period.value),start=selectedDate ? Date.parse(selectedDate+'T00:00:00Z')/1000:now-span,end=selectedDate ? start+86400:now;
+  const bucket=selectedDate||span===86400 ? 3600:span===604800 ? 86400:span===21600 ? 900:0;
+  current=pointsFor(start,end,bucket);container.replaceChildren();tbody.replaceChildren();
+  const selected=selectedDate ? getDay(selectedDate):undefined;
+  const times=current.map(point=>point.at);
+  coverage.textContent=selectedDate ? `${selectedDate} UTC · Daily averages and hourly means. Click its uptime bar for the full breakdown.` : `Rolling ${period.selectedOptions[0].textContent} · ${bucket ? bucket===86400?'daily':bucket===3600?'hourly':'15-minute':'individual-check'} values.`;
+  if(!times.length)coverage.textContent+=' No recorded samples in this period.';
+  const ids=[...new Set(current.map(point=>`${point.moduleId}/${point.metric.id}`))];
   for(const id of ids) {
-   const points=current.filter(p=>`${p.moduleId}/${p.metric.id}`===id).sort((a,b)=>a.at-b.at);
-   const card=document.createElement('article');card.className='history-chart';
-   const title=document.createElement('h4');title.textContent=points[0].metric.label;
-   const latest=points[points.length-1];const summary=document.createElement('p');summary.className='chart-summary';
-   const lo=Math.min(...points.map(p=>p.metric.min??p.metric.value)),hi=Math.max(...points.map(p=>p.metric.max??p.metric.value));
-   summary.textContent=`Latest ${formatMetric(latest.metric)} · Min ${formatMetric({...latest.metric,value:lo})} · Max ${formatMetric({...latest.metric,value:hi})}`;
-   let bottom=Math.min(0,lo),top=hi; if(top===bottom) top=bottom+1;
-   const x=(at:number)=>44+(at-start)/(end-start)*636, y=(value:number)=>150-(value-bottom)/(top-bottom)*126;
-   const svg=svgElement('svg',{viewBox:'0 0 700 190',role:'img',tabindex:'0','aria-label':`${points[0].metric.label} history. Use arrow keys to inspect samples.`});
-   for(const value of [bottom,(bottom+top)/2,top]) {
-    svg.append(svgElement('line',{x1:44,x2:680,y1:y(value),y2:y(value),class:'chart-grid'}));
-    const text=svgElement('text',{x:40,y:y(value)+4,'text-anchor':'end'});text.textContent=value.toLocaleString('en',{maximumFractionDigits:2});svg.append(text);
-   }
-   const intervals=points.slice(1).map((p,i)=>!p.bucket && !points[i].bucket ? p.at-points[i].at : 0).filter(n=>n>0).sort((a,b)=>a-b);
-   const interval=intervals.length ? intervals[Math.floor(intervals.length/2)] : 30;
-   const segments:Point[][]=[];
-   for(const point of points) {
-    const segment=segments[segments.length-1],previous=segment?.[segment.length-1];
-    if(!previous || point.at-previous.at>Math.max(previous.bucket,point.bucket,interval)*1.8) segments.push([point]);else segment.push(point);
-   }
-   for(const segment of segments) {
-    const band=segment.map(p=>`${x(p.at)},${y(p.metric.max??p.metric.value)}`).concat([...segment].reverse().map(p=>`${x(p.at)},${y(p.metric.min??p.metric.value)}`)).join(' ');
-    svg.append(svgElement('polygon',{points:band,class:'chart-band'}));
-    svg.append(svgElement('polyline',{points:segment.map(p=>`${x(p.at)},${y(p.metric.value)}`).join(' '),class:'chart-line'}));
-    if(segment.length===1) svg.append(svgElement('circle',{cx:x(segment[0].at),cy:y(segment[0].metric.value),r:3,class:'chart-dot'}));
-   }
-   for(const [at,anchor] of [[start,'start'],[end,'end']] as const) {
-    const label=svgElement('text',{x:x(at),y:177,'text-anchor':anchor});label.textContent=new Date(at*1000).toISOString().slice(5,16).replace('T',' ');svg.append(label);
-   }
-   const cursor=svgElement('line',{x1:0,x2:0,y1:18,y2:154,class:'chart-cursor',visibility:'hidden'});svg.append(cursor);
-   const detail=document.createElement('p');detail.className='chart-detail';detail.setAttribute('aria-live','polite');detail.textContent='Hover, tap or use arrow keys for a sample.';
-   let index=points.length-1;
-   function inspect(i:number) {index=Math.max(0,Math.min(points.length-1,i));const p=points[index];cursor.setAttribute('x1',String(x(p.at)));cursor.setAttribute('x2',String(x(p.at)));cursor.setAttribute('visibility','visible');detail.textContent=`${utc(p.at)} · ${formatMetric(p.metric)}${p.bucket ? ` average · range ${formatMetric({...p.metric,value:p.metric.min??p.metric.value})}–${formatMetric({...p.metric,value:p.metric.max??p.metric.value})}`:''}`;}
-   svg.addEventListener('pointermove',event=>{const e=event as PointerEvent;const r=svg.getBoundingClientRect();const at=start+((e.clientX-r.left)/r.width*700-44)/636*(end-start);let nearest=0;for(let i=1;i<points.length;i++) if(Math.abs(points[i].at-at)<Math.abs(points[nearest].at-at)) nearest=i;inspect(nearest);});
-   svg.addEventListener('keydown',event=>{const e=event as KeyboardEvent;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();inspect(index+(e.key==='ArrowRight'?1:-1));}});
-   card.append(title,summary,svg,detail);container.append(card);
+   const points=current.filter(point=>`${point.moduleId}/${point.metric.id}`===id);
+   container.append(chartCard(points,start,end,bands(),selected?.metrics.find(metric=>metric.id===id)));
   }
-  for(const p of [...current].sort((a,b)=>b.at-a.at).slice(0,40)) {
-   const row=document.createElement('tr');for(const value of [utc(p.at),p.metric.label,formatMetric(p.metric),p.bucket ? `${p.metric.min??p.metric.value}–${p.metric.max??p.metric.value}`:'Individual check']) {const td=document.createElement('td');td.textContent=value;row.append(td);}tbody.append(row);
+  for(const point of [...current].sort((a,b)=>b.at-a.at).slice(0,40)) {
+   const row=document.createElement('tr');for(const value of [utc(point.at),point.metric.label,point.metric.unit==='boolean'&&point.metric.value>0&&point.metric.value<1 ? `${(point.metric.value*100).toFixed(1)}% yes checks`:formatMetric(point.metric),point.bucket ? `${point.metric.min??point.metric.value}–${point.metric.max??point.metric.value}`:'Individual check']){const cell=document.createElement('td');cell.textContent=value;row.append(cell);}tbody.append(row);
   }
  }
- period.addEventListener('change',render);
+ function openDay(date:string,hour?:number) {
+  const day=getDay(date),start=Date.parse(date+'T00:00:00Z')/1000;selectedDate=date;render();dialog.replaceChildren();dialog.setAttribute('aria-label',`${date} UTC — hourly incidents and stats`);
+  const header=document.createElement('div');header.className='day-dialog-heading';const title=document.createElement('h2');title.textContent=`${date} UTC — hour by hour`;
+  const close=document.createElement('button');close.type='button';close.textContent='Close';close.addEventListener('click',()=>dialog.close());header.append(title,close);dialog.append(header,dayTable(day));
+  const chooser=document.createElement('label');chooser.textContent='Hourly graph ';const select=document.createElement('select');select.className='day-graph-metric';
+  const chartPoints=pointsFor(start,start+86400,3600),ids=[...new Set(chartPoints.map(point=>`${point.moduleId}/${point.metric.id}`))];
+  for(const id of ids){const point=chartPoints.find(point=>`${point.moduleId}/${point.metric.id}`===id)!;const option=document.createElement('option');option.value=id;option.textContent=point.metric.label;select.append(option);}
+  const preferred=chartPoints.find(point=>point.metric.unit==='ratio');if(preferred)select.value=`${preferred.moduleId}/${preferred.metric.id}`;
+  chooser.append(select);const graph=document.createElement('div');graph.className='day-dialog-chart';
+  const draw=()=>{graph.replaceChildren();const points=chartPoints.filter(point=>`${point.moduleId}/${point.metric.id}`===select.value);if(points.length)graph.append(chartCard(points,start,start+86400,bands(),day.metrics.find(metric=>metric.id===select.value)));};select.addEventListener('change',draw);
+  if(ids.length){dialog.append(chooser,graph);draw();}
+  const note=document.createElement('p');note.textContent='Averages and ranges describe recorded checks. Incident times are clipped to each hour; missing stats remain No data. Red/orange chart bands mark incident periods.';dialog.append(note);
+  const scroll=document.createElement('div');scroll.className='day-hour-table-scroll';const table=document.createElement('table');table.className='day-hour-breakdown';
+  const head=document.createElement('thead'),headRow=document.createElement('tr');for(const label of ['Hour UTC','Recorded incidents',...(day.metrics.length ? day.metrics.map(metric=>metric.label):['Metrics'])]){const cell=document.createElement('th');cell.scope='col';cell.textContent=label;headRow.append(cell);}head.append(headRow);table.append(head);
+  const body=document.createElement('tbody');
+  for(const entry of day.hours) {
+   const row=document.createElement('tr');row.dataset.hour=String(entry.hour);row.tabIndex=-1;
+   const time=document.createElement('th');time.scope='row';time.textContent=String(entry.hour).padStart(2,'0')+':00';row.append(time);
+   const cell=document.createElement('td');cell.className='hour-incidents';
+   for(const overlap of entry.incidents) {const link=document.createElement('a');link.href='/incident/'+encodeURIComponent(overlap.incident.id);link.dataset.severity=overlap.incident.severity;link.textContent=`${new Date(overlap.from*1000).toISOString().slice(11,19)}–${new Date(overlap.until*1000).toISOString().slice(11,19)} · ${overlap.incident.title} · ${Math.round(overlap.until-overlap.from)}s in this hour`;cell.append(link);}
+   if(!entry.incidents.length)cell.textContent=entry.future?'Future hour':'None recorded';row.append(cell);
+   for(const metric of day.metrics){const cell=document.createElement('td'),found=entry.metrics.find(candidate=>candidate.id===metric.id);cell.textContent=found?metricText(found):'No data';row.append(cell);}
+   if(!day.metrics.length){const cell=document.createElement('td');cell.textContent='No metric data';row.append(cell);}body.append(row);
+  }
+  table.append(body);scroll.append(table);dialog.append(scroll);
+  if(day.untimedIncidents.length){const note=document.createElement('p');note.textContent='These incidents have no exact timestamps and cannot be assigned to an hour:';dialog.append(note);for(const incident of day.untimedIncidents){const link=document.createElement('a');link.href='/incident/'+encodeURIComponent(incident.id);link.textContent=incident.title;dialog.append(link);}}
+  if(!dialog.open)dialog.showModal();if(hour!==undefined){const row=body.querySelector<HTMLElement>(`tr[data-hour="${hour}"]`);row?.focus();row?.scrollIntoView({block:'nearest'});}
+ }
+ function handles(detail:{date:string;componentIds:string[]}) {return detail.componentIds.some(id=>componentIds.includes(id));}
+ window.addEventListener('pulse:day-selected',event=>{
+  const detail=(event as CustomEvent<{date:string;componentIds:string[]}>).detail;if(!handles(detail)||dialog.open)return;
+  selectedDate=detail.date;render();const target=document.getElementById('daysel');if(!target)return;const day=getDay(detail.date);
+  const holder=document.createElement('div');holder.className='day-metric-preview';const title=document.createElement('h4');title.textContent=`${detail.date} UTC — daily averages`;holder.append(title,dayTable(day));const incidentCount=document.createElement('p');incidentCount.textContent=`${new Set(day.hours.flatMap(hour=>hour.incidents.map(overlap=>overlap.incident.id))).size+day.untimedIncidents.length} recorded incidents on this day`;holder.append(incidentCount);
+  const label=document.createElement('p');label.textContent='Hourly preview — hover an hour for its numbers; click to inspect.';holder.append(label);
+  const hours=document.createElement('div');hours.className='day-hour-preview';
+  const hourDetail=document.createElement('div');hourDetail.className='hour-metric-preview';hourDetail.setAttribute('aria-live','polite');
+  inspectHour=(hour:number)=>{const entry=day.hours[hour];if(!entry)return;hourDetail.replaceChildren();const title=document.createElement('h5');title.textContent=`${detail.date} ${String(hour).padStart(2,'0')}:00–${String(hour+1).padStart(2,'0')}:00 UTC`;hourDetail.append(title,dayTable({...day,metrics:entry.metrics}));const incidentLabel=document.createElement('p');incidentLabel.textContent=entry.incidents.length ? entry.incidents.map(overlap=>overlap.incident.title).join(' · ') : entry.future?'Future hour':'No incidents recorded in this hour';hourDetail.append(incidentLabel);};
+  for(const entry of day.hours){const button=document.createElement('button');button.type='button';button.textContent=String(entry.hour).padStart(2,'0');button.dataset.hour=String(entry.hour);button.dataset.state=entry.incidents.some(i=>i.incident.severity==='major')?'outage':entry.incidents.length?'degraded':entry.metrics.length?'data':'missing';
+   const text=`${detail.date} ${button.textContent}:00 UTC\n${entry.metrics.map(metric=>`${metric.label}: ${metricText(metric)}`).join('\n')||'No metric data'}\n${entry.incidents.length} recorded incident(s)`;button.title=text;button.setAttribute('aria-label',text);button.addEventListener('pointerenter',()=>inspectHour?.(entry.hour));button.addEventListener('focus',()=>inspectHour?.(entry.hour));button.addEventListener('click',()=>openDay(detail.date,entry.hour));hours.append(button);}
+  holder.append(hours,hourDetail);inspectHour(detail.date===new Date().toISOString().slice(0,10) ? new Date().getUTCHours() : (day.hours.find(hour=>hour.metrics.length||hour.incidents.length)?.hour??0));const button=document.createElement('button');button.type='button';button.className='open-day-breakdown';button.textContent='Open hour-by-hour incidents and stats';button.addEventListener('click',()=>openDay(detail.date));holder.append(button);
+  target.replaceChildren(holder);
+ });
+ window.addEventListener('pulse:day-open',event=>{const detail=(event as CustomEvent<{date:string;componentIds:string[]}>).detail;if(handles(detail))openDay(detail.date);});
+ window.addEventListener('pulse:hour-hover',event=>{const detail=(event as CustomEvent<{at:number;moduleId:string}>).detail;if(!dialog.open && histories.some(history=>history.id===detail.moduleId) && new Date(detail.at*1000).toISOString().slice(0,10)===selectedDate)inspectHour?.(Math.floor(detail.at/3600)%24);});
+ period.addEventListener('change',()=>{selectedDate=undefined;render();});
  panel.querySelector('.history-download')!.addEventListener('click',()=>{
-  const quote=(v:unknown)=>'"'+String(v).replace(/"/g,'""')+'"';
-  const rows=[['UTC time','Module','Metric','Unit','Value','Minimum','Maximum','Bucket seconds','Recorded checks'],...current.map(p=>[utc(p.at),p.moduleId,p.metric.id,p.metric.unit,p.metric.value,p.metric.min??p.metric.value,p.metric.max??p.metric.value,p.bucket,p.metric.samples??1])];
-  const url=URL.createObjectURL(new Blob([rows.map(row=>row.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download='performance-history.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  const quote=(value:unknown)=>'"'+String(value).replace(/"/g,'""')+'"';
+  const rows=[['UTC time','Module','Metric','Unit','Value','Minimum','Maximum','Bucket seconds','Recorded checks'],...current.map(point=>[utc(point.at),point.moduleId,point.metric.id,point.metric.unit,point.metric.value,point.metric.min??point.metric.value,point.metric.max??point.metric.value,point.bucket,point.metric.samples??1])];
+  const url=URL.createObjectURL(new Blob([rows.map(row=>row.map(quote).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8'}));const link=document.createElement('a');link.href=url;link.download=selectedDate?`performance-${selectedDate}.csv`:'performance-history.csv';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
  });
  render();
 }
 </script>
 <style>
-.daily-breakdown{margin-top:1.2rem}.daily-days :global(.daily-day){margin:.6rem 0;padding:.6rem;border:1px solid var(--border,#ddd);border-radius:.4rem}.daily-days :global(summary){cursor:pointer}.daily-days :global(.history-table-scroll){margin-top:.6rem}.daily-days :global(table){width:100%;font-size:.75rem;border-collapse:collapse}.daily-days :global(td),.daily-days :global(th){padding:.5rem;text-align:left;border-bottom:1px solid var(--border,#ddd)}:global(.day-metric-preview){margin:1rem 0}:global(.day-metrics){width:100%;font-size:.8rem}:global(.day-metrics th),:global(.day-metrics td){padding:.35rem;text-align:left}
+:global(.day-metric-preview){margin:1rem 0}:global(.day-metrics){width:100%;font-size:.8rem}:global(.day-metrics th),:global(.day-metrics td){padding:.35rem;text-align:left}:global(.day-hour-preview){display:grid;grid-template-columns:repeat(12,1fr);gap:.25rem;margin:.6rem 0}:global(.day-hour-preview button){padding:.35rem;border:1px solid var(--border,#ccc);border-radius:.3rem;color:inherit;background:transparent;cursor:pointer}:global(.day-hour-preview button[data-state="data"]){border-bottom:3px solid #3b82f6}:global(.day-hour-preview button[data-state="outage"]){border-bottom:3px solid #ef4444}:global(.day-hour-preview button[data-state="degraded"]){border-bottom:3px solid #f59e0b}:global(.day-hour-preview button[data-state="missing"]){opacity:.55}:global(.hour-metric-preview){margin:.8rem 0}:global(.history-day-dialog){box-sizing:border-box;width:min(1150px,94vw);max-height:88vh;border:1px solid var(--border,#aaa);border-radius:.7rem;padding:1.25rem;background:var(--paper,#fff);color:var(--ink,#111)}:global(.history-day-dialog::backdrop){background:rgba(0,0,0,.5)}:global(.day-dialog-heading){display:flex;gap:1rem;align-items:center;justify-content:space-between}:global(.day-dialog-heading h2){margin:.2rem 0 1rem}:global(.history-day-dialog button),:global(.history-day-dialog select),:global(.open-day-breakdown){font:inherit;padding:.4rem .6rem;border:1px solid var(--border,#aaa);border-radius:.4rem;background:transparent;color:inherit;cursor:pointer}:global(.day-hour-table-scroll){overflow:auto;max-height:48vh}:global(.day-hour-breakdown){min-width:750px;width:100%;font-size:.78rem;border-collapse:collapse}:global(.day-hour-breakdown th),:global(.day-hour-breakdown td){padding:.6rem;text-align:left;border-bottom:1px solid var(--border,#ddd)}:global(.day-hour-breakdown thead){position:sticky;top:0;background:var(--paper,#fff)}:global(.hour-incidents a){display:block;margin:.3rem 0;padding-left:.5rem;border-left:3px solid #f59e0b;color:inherit}:global(.hour-incidents a[data-severity="major"]){border-left-color:#ef4444}:global(.day-dialog-chart .history-chart){padding:.8rem;border:1px solid var(--border,#ddd);border-radius:.4rem;margin:1rem 0}:global(.day-dialog-chart svg){width:100%}:global(.day-dialog-chart h4){margin:0}:global(.chart-reference){stroke:currentColor;stroke-dasharray:4 4;opacity:.35}:global(.chart-average-bar){fill:#3b82f6;opacity:.65}:global(.chart-whisker){stroke:currentColor;stroke-width:1.5}:global(.chart-incident){opacity:.12}:global(.day-dialog-chart text){fill:currentColor;font-size:10px}:global(.day-dialog-chart .chart-grid){stroke:currentColor;opacity:.12}:global(.day-dialog-chart .chart-line){fill:none;stroke:#3b82f6;stroke-width:2}:global(.day-dialog-chart .chart-band){fill:#3b82f6;opacity:.18}:global(.day-dialog-chart .chart-dot){fill:#3b82f6}:global(.day-dialog-chart .chart-cursor){stroke:currentColor;stroke-dasharray:3 3;opacity:.6}
 .telemetry-history{margin-top:1.5rem;border-top:1px solid var(--border,#ddd);padding-top:1rem}.history-heading{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}.history-heading h3{margin:0 auto 0 0}.history-heading select,.history-heading button{font:inherit;padding:.4rem .6rem;border:1px solid var(--border,#aaa);border-radius:.4rem;background:var(--bg,transparent);color:inherit}.history-note,.history-coverage{font-size:.8rem;opacity:.75}.history-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:1rem}.history-charts :global(.history-chart){min-width:0;padding:.8rem;border:1px solid var(--border,#ddd);border-radius:.5rem}.history-charts :global(h4){margin:0 0 .4rem}.history-charts :global(svg){width:100%;color:inherit;touch-action:pan-y}.history-charts :global(text){fill:currentColor;font-size:10px}.history-charts :global(.chart-grid){stroke:currentColor;opacity:.12}.history-charts :global(.chart-line){fill:none;stroke:#3b82f6;stroke-width:2}.history-charts :global(.chart-dot){fill:#3b82f6}.history-charts :global(.chart-band){fill:#3b82f6;opacity:.18}.history-charts :global(.chart-cursor){stroke:currentColor;stroke-dasharray:3 3;opacity:.6}.history-charts :global(.chart-summary),.history-charts :global(.chart-detail){font-size:.75rem;margin:.4rem 0;min-height:2.2em}.history-table{margin-top:1rem}.history-table-scroll{overflow:auto;max-height:25rem}table{width:100%;font-size:.8rem;border-collapse:collapse}th,td{padding:.4rem;text-align:left;border-bottom:1px solid var(--border,#ddd)}
+@media(max-width:600px){:global(.day-hour-preview){grid-template-columns:repeat(6,1fr)}:global(.day-hour-preview button){min-height:44px}:global(.history-day-dialog){padding:.8rem}}
 </style>

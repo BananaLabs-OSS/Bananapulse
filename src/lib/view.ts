@@ -42,6 +42,8 @@ export interface DayIncident {
   severity: string;
   affectedName?: string;
   affects: string[];   // subtree component ids it touches
+  startedAt?: string;  // Exact ISO timestamp when available
+  resolvedAt?: string; // Exact ISO timestamp; absent while open
   start: string;       // YYYY-MM-DD
   end: string;         // YYYY-MM-DD (today if still open)
 }

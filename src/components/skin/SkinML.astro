@@ -289,6 +289,10 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
     window.dispatchEvent(new CustomEvent('pulse:day-selected', { detail: { date: barEl.getAttribute('data-date'), componentIds: (barsEl.getAttribute('data-sub') || '').split(' ').filter(Boolean) } }));
   }
 
+  function openDay(barEl: Element, barsEl: Element) {
+    window.dispatchEvent(new CustomEvent('pulse:day-open', { detail: { date: barEl.getAttribute('data-date'), componentIds: (barsEl.getAttribute('data-sub') || '').split(' ').filter(Boolean) } }));
+  }
+
   function nearest(barsEl: Element, x: number) {
     const spans = Array.from(barsEl.querySelectorAll('span[title]'));
     let idx = 0, bd = Infinity;
@@ -364,6 +368,7 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
       const rect = spans[index].getBoundingClientRect();
       showLoupe(bars, (rect.left + rect.right) / 2, rect.top);
       selectDay(spans[index], bars);
+      if (e.key === 'Enter' || e.key === ' ') openDay(spans[index], bars);
     });
     bars.addEventListener('pointerdown', (e) => {
       const pe = e as PointerEvent;
@@ -383,7 +388,7 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
     bars.addEventListener('click', (e) => {
       if (bars.closest('a')) return; // child rows are drill-in links; only the main strip opens the day card
       const { spans, idx } = nearest(bars, (e as MouseEvent).clientX);
-      if (spans[idx]) selectDay(spans[idx], bars);
+      if (spans[idx]) { selectDay(spans[idx], bars); openDay(spans[idx], bars); }
     });
   });
 </script>

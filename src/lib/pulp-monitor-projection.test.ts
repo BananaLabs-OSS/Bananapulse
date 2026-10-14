@@ -237,6 +237,7 @@ describe('Pulp monitor public projection adapter', () => {
     expect(view!.uptime.slice(-2)).toEqual(['ok', 'deg']);
     expect(view!.dayIncidents[0]).toMatchObject({
       id: 'incident-1',
+      startedAt: expect.stringContaining('T'),
       affectedName: 'API',
       affects: ['api'],
     });

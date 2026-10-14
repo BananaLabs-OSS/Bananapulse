@@ -594,6 +594,8 @@ function dayIncidents(
         severity: incident.severity,
         affectedName: affected ? byId.get(affected)?.component.name ?? affected : undefined,
         affects: (incident.affects ?? []).filter((id) => ids.has(id)),
+        startedAt: incident.started,
+        resolvedAt: incident.resolved ?? undefined,
         start: incident.started.slice(0, 10),
         end: incident.resolved?.slice(0, 10) ?? today,
       };
