@@ -1,0 +1,13 @@
+schema_version = 1
+provides = ["telemetry.v1.ack", "telemetry.v1.configure", "telemetry.v1.history", "telemetry.v1.import", "telemetry.v1.ingest", "telemetry.v1.pending", "telemetry.v1.snapshot"]
+consumes = []
+capabilities = ["storage.sqlite"]
+
+[module]
+id = "bananalabs/telemetry"
+version = "1.0.0"
+
+[[artifacts]]
+target = "wasm32-wasip1+pulp-v1"
+digest = "sha256:80566ec911cc8a02d6996cc814d5061fce27da068c9aa647e3f999f5b4e626ec"
+size = 5183960

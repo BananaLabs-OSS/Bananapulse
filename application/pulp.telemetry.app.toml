@@ -1,0 +1,17 @@
+schema_version = 1
+name = "bananapulse"
+version = "1.0.0"
+require_wasm_sha256 = true
+cells = [
+  "../pulp-monitor/pulp.cell.toml",
+  "../pulp-subscribers/pulp.cell.toml",
+  "../pulp-auth/pulp.cell.toml",
+  "../pulp-telemetry/pulp.cell.toml",
+  "../pulp-game-server/pulp.cell.toml",
+  "telemetry-orchestrator.cell.toml",
+]
+
+[orchestrator]
+manifest = "telemetry-orchestrator.cell.toml"
+script = "bananapulse-telemetry.lua"
+sha256 = "6c6cb74e90a11f39f1cea9ed55a751d98dbc0ee2b89be7a4e0ebf075e4c5b4d2"

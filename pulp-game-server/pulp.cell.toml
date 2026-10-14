@@ -1,0 +1,10 @@
+schema_version = 1
+name = "pulp-game-server"
+version = "1.0.0"
+wasm = "pulp-game-server.wasm"
+max_memory_pages = 1024
+call_timeout_ms = 10000
+provides = ["game-server.v1.normalize"]
+consumes = []
+capabilities = []
+wasm_sha256 = "573bf29d75518d517b014a2da85f578247311a4db715207449d9e6a8bf9e311e"

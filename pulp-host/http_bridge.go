@@ -109,6 +109,9 @@ func (b *httpBridge) authorized(r *http.Request) bool {
 }
 
 func (b *httpBridge) dispatchHTTP(ctx context.Context, event string, r *http.Request, w http.ResponseWriter) error {
+	if strings.HasPrefix(event, "bananapulse.telemetry.") {
+		return b.telemetryHTTP(ctx, event, r, w)
+	}
 	if event == eventHostSMTPEmail {
 		return b.smtpHTTP(ctx, r, w)
 	}
@@ -320,6 +323,7 @@ func (b *httpBridge) monitorEventAllowed(event, kind string) bool {
 
 type bridgeFamilies struct {
 	monitorAdmin    bool
+	telemetry       bool
 	monitorIngest   bool
 	monitorSweep    bool
 	subscriberAdmin bool

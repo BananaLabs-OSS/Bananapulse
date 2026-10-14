@@ -15,6 +15,7 @@ func TestLocalProductionCompositionIsFailClosed(t *testing.T) {
 	compose := string(raw)
 	for _, name := range []string{
 		bridgeMonitorAdminEnv,
+		bridgeTelemetryEnv,
 		bridgeMonitorIngestEnv,
 		bridgeMonitorSweepEnv,
 		bridgeSubscriberAdminEnv,
@@ -58,6 +59,8 @@ func TestPulpHostImagePackagesThePinnedComposition(t *testing.T) {
 		"/workspace/Bananapulse/pulp-monitor ./pulp-monitor",
 		"/workspace/Bananapulse/pulp-subscribers ./pulp-subscribers",
 		"/workspace/Bananapulse/pulp-auth ./pulp-auth",
+		"/workspace/Bananapulse/pulp-telemetry ./pulp-telemetry",
+		"/workspace/Bananapulse/pulp-game-server ./pulp-game-server",
 	} {
 		if !strings.Contains(dockerfile, required) {
 			t.Fatalf("Pulp host image is missing %q", required)

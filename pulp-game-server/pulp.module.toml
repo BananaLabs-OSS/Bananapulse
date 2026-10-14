@@ -1,0 +1,13 @@
+schema_version = 1
+provides = ["game-server.v1.normalize"]
+consumes = []
+capabilities = []
+
+[module]
+id = "bananalabs/game-server"
+version = "1.0.0"
+
+[[artifacts]]
+target = "wasm32-wasip1+pulp-v1"
+digest = "sha256:573bf29d75518d517b014a2da85f578247311a4db715207449d9e6a8bf9e311e"
+size = 4008853

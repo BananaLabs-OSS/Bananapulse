@@ -1,6 +1,6 @@
 module github.com/BananaLabs-OSS/Bananapulse/pulp-host
 
-go 1.25.6
+go 1.25.13
 
 require (
 	github.com/BananaLabs-OSS/Pulp v0.0.0
@@ -13,6 +13,7 @@ require (
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect

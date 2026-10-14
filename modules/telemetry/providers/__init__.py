@@ -11,7 +11,7 @@ def adapter_id(config):
 
 def configure(config):
     ident=adapter_id(config)
-    if ident=='http-json': return dict(config)
+    if ident=='http-json': return {**config,'adapter':ident}
     if ident.startswith('game-server/'):
         from game_server import configure as game_configure
         return game_configure(config,ident)

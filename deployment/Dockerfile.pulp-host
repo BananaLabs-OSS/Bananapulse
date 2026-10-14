@@ -13,6 +13,8 @@ COPY application /workspace/Bananapulse/application
 COPY pulp-monitor /workspace/Bananapulse/pulp-monitor
 COPY pulp-subscribers /workspace/Bananapulse/pulp-subscribers
 COPY pulp-auth /workspace/Bananapulse/pulp-auth
+COPY pulp-telemetry /workspace/Bananapulse/pulp-telemetry
+COPY pulp-game-server /workspace/Bananapulse/pulp-game-server
 WORKDIR /workspace/Bananapulse/pulp-host
 RUN CGO_ENABLED=0 go build -trimpath -o /out/bananapulse-pulp-host .
 
@@ -29,6 +31,8 @@ COPY --from=build /workspace/Bananapulse/application ./application
 COPY --from=build /workspace/Bananapulse/pulp-monitor ./pulp-monitor
 COPY --from=build /workspace/Bananapulse/pulp-subscribers ./pulp-subscribers
 COPY --from=build /workspace/Bananapulse/pulp-auth ./pulp-auth
+COPY --from=build /workspace/Bananapulse/pulp-telemetry ./pulp-telemetry
+COPY --from=build /workspace/Bananapulse/pulp-game-server ./pulp-game-server
 USER bananapulse
 EXPOSE 8788
-CMD ["./bananapulse-pulp-host"]
+CMD ["sh", "-c", "umask 077; exec ./bananapulse-pulp-host"]

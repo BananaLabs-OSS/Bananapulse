@@ -167,7 +167,7 @@ def handler(store, token):
         def log_message(self,*args): pass
     return Handler
 
-def main():
+def legacy_main():
     with open(os.environ.get('TELEMETRY_CONFIG','/config/telemetry.json')) as source:
         config=configure(json.load(source))
     if len(config['metrics'])>32: raise ValueError('Too many metric definitions')
@@ -195,4 +195,12 @@ def main():
                 # Delivery retries preserve IDs. Provider credentials and errors never enter logs.
                 print(json.dumps({'module':config['id'],'statusDelivery':'unavailable'}),flush=True)
         time.sleep(max(1,config.get('intervalSeconds',30)-(time.monotonic()-started)))
+def main():
+    with open(os.environ.get('TELEMETRY_CONFIG','/config/telemetry.json')) as source:
+        config=configure(json.load(source))
+    if config.get('owner','pulp')=='legacy':
+        return legacy_main()
+    if config.get('owner','pulp')!='pulp': raise ValueError('Unknown telemetry owner')
+    from pulp_backend import main as run_pulp
+    return run_pulp(config,bridge_event,initialize_policy,can_publish)
 if __name__=='__main__': main()

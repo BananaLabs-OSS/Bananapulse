@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "target": "wasm32-wasip1+pulp-v1",
+  "roots": [
+    {
+      "id": "bananalabs/game-server",
+      "requirement": "1.0.0"
+    },
+    {
+      "id": "bananalabs/telemetry",
+      "requirement": "1.0.0"
+    }
+  ],
+  "modules": [
+    {
+      "id": "bananalabs/game-server",
+      "version": "1.0.0",
+      "manifest_digest": "sha256:d341383af7abb3abccbe2bc6a4b7bd150eb79de913c2d8bd1cfd00a74c540d06",
+      "artifact_digest": "sha256:573bf29d75518d517b014a2da85f578247311a4db715207449d9e6a8bf9e311e",
+      "dependencies": null
+    },
+    {
+      "id": "bananalabs/telemetry",
+      "version": "1.0.0",
+      "manifest_digest": "sha256:6e556a61b5bde36f048e954220bc6fa83d6529ea2bc15ff5504d5118a9ac7f75",
+      "artifact_digest": "sha256:80566ec911cc8a02d6996cc814d5061fce27da068c9aa647e3f999f5b4e626ec",
+      "dependencies": null
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+schema_version = 1
+name = "pulp-telemetry"
+version = "1.0.0"
+wasm = "pulp-telemetry.wasm"
+max_memory_pages = 2048
+call_timeout_ms = 30000
+provides = ["telemetry.v1.configure", "telemetry.v1.ingest", "telemetry.v1.snapshot", "telemetry.v1.history", "telemetry.v1.pending", "telemetry.v1.ack", "telemetry.v1.import"]
+consumes = []
+capabilities = ["storage.sqlite"]
+wasm_sha256 = "80566ec911cc8a02d6996cc814d5061fce27da068c9aa647e3f999f5b4e626ec"
+[config]
+storage_namespace = "bananapulse/telemetry/v1"

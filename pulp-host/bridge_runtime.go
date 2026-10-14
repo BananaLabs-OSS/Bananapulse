@@ -26,6 +26,7 @@ const (
 	bridgeAppManifestEnv        = "PULP_APP_MANIFEST"
 	bridgeStorageRootEnv        = "PULP_STORAGE_ROOT"
 	bridgeMonitorAdminEnv       = "PULP_BRIDGE_ENABLE_MONITOR_ADMIN"
+	bridgeTelemetryEnv          = "PULP_BRIDGE_ENABLE_TELEMETRY"
 	bridgeMonitorIngestEnv      = "PULP_BRIDGE_ENABLE_MONITOR_INGEST"
 	bridgeMonitorSweepEnv       = "PULP_BRIDGE_ENABLE_MONITOR_SWEEP"
 	bridgeSubscriberAdminEnv    = "PULP_BRIDGE_ENABLE_SUBSCRIBER_ADMIN"
@@ -54,6 +55,7 @@ func bridgeConfigFromEnv() bridgeConfig {
 		UnsubscribeBaseURL: os.Getenv(bridgeUnsubscribeBaseURLEnv),
 		Families: bridgeFamilies{
 			monitorAdmin:    bridgeEnvEnabled(bridgeMonitorAdminEnv),
+			telemetry:       bridgeEnvEnabled(bridgeTelemetryEnv),
 			monitorIngest:   bridgeEnvEnabled(bridgeMonitorIngestEnv),
 			monitorSweep:    bridgeEnvEnabled(bridgeMonitorSweepEnv),
 			subscriberAdmin: bridgeEnvEnabled(bridgeSubscriberAdminEnv),
