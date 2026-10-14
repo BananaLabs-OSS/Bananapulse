@@ -22,7 +22,7 @@ For example, to expose only simulation speed and player count:
 [{"id":"vrage","componentId":"game-performance","url":"http://127.0.0.1:8790/snapshot","enabled":true,"publicMetrics":["simulation_speed","players"]}]
 ```
 
-Put this JSON in the frontend `PULSE_TELEMETRY_MODULES` environment variable. The generic collapsed Service details panel appears only within the configured component's subtree. All other fields remain private; stale samples, failed polls and identity mismatches show unavailable. Optional module failures do not replace the site's main status or break page rendering. No arbitrary provider response is rendered publicly.
+Put this JSON in the frontend `PULSE_TELEMETRY_MODULES` environment variable. The generic open Live stats panel appears within the configured component's subtree (or `displayComponentId` subtree when attached to another public service). All other fields remain private; stale samples, failed polls and identity mismatches show unavailable. Optional module failures do not replace the site's main status or break page rendering. No arbitrary provider response is rendered publicly.
 
 ## Alert policy
 
@@ -54,3 +54,5 @@ Use `application/pulp.telemetry.app.toml` instead of the default application man
 The collector defaults to `owner: pulp`. Its credentials stay at the native transport boundary; normalization, metric history, freshness and threshold state run in Wasm. Before cutover, stop the old collector after its pending queue drains, back up its database, then run `modules/telemetry/migrate_to_pulp.py <legacy-sqlite-path>` with the configured private bridge environment. The importer reads the old database without modifying it, transfers bounded batches and preserves policy/poll state. Import closes after the first live poll or explicit finish. Keep the old store and `owner: legacy` path for rollback.
 
 SE-PULSE query latency uses a separate private performance component and source, while the native probe commits game availability first. A failed stats module therefore cannot suppress availability reports or make an unavailable game look recovered. Query latency and simulation performance both have durable Pulp state; the instance public projection folds their fresh declarations into one visible server. `evaluationOnly: true` remains available for integrations that need a policy result without publishing a competing observation.
+
+Pulp-owned snapshots can be selected with `transport: "pulp"` instead of `url`; the frontend queries the authenticated `PULP_BRIDGE_URL` snapshot event directly. Snapshot identity is still checked against the original module and component IDs. `displayComponentId` changes presentation only. Both transports enforce freshness, field allowlists, a two-second deadline and a 16 KiB response limit. Counts, ratios and readiness have readable formats; reported load is never presented as host CPU percentage.
