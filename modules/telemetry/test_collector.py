@@ -1,5 +1,6 @@
-import importlib.util,json,tempfile,unittest
+import importlib.util,json,tempfile,unittest,sys
 from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent))
 spec=importlib.util.spec_from_file_location('collector',Path(__file__).with_name('collector.py'));collector=importlib.util.module_from_spec(spec);spec.loader.exec_module(collector)
 class CollectorTests(unittest.TestCase):
  def test_maps_allowlisted_metrics_and_rejects_missing_nan_and_wrong_types(self):

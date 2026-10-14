@@ -2,20 +2,11 @@
   "id": "vrage",
   "componentId": "game-performance",
   "url": "https://your-game-server.example/vrageremote/v1/server",
-  "auth": "vrage-hmac-sha1",
   "keyEnv": "VRAGE_KEY",
   "intervalSeconds": 30,
   "ttlSeconds": 120,
   "retentionDays": 7,
   "port": 8790,
-  "metrics": [
-    {"id":"ready","label":"Server ready","unit":"boolean","path":"data.IsReady"},
-    {"id":"simulation_speed","label":"Simulation speed","unit":"ratio","path":"data.SimSpeed"},
-    {"id":"simulation_cpu_load","label":"Simulation CPU load","unit":"reported","path":"data.SimulationCpuLoad"},
-    {"id":"players","label":"Players","unit":"count","path":"data.Players"},
-    {"id":"used_pcu","label":"Used PCU","unit":"count","path":"data.UsedPCU"},
-    {"id":"pirate_pcu","label":"Pirate PCU","unit":"count","path":"data.PirateUsedPCU"}
-  ],
   "policy": {
     "enabled": false,
     "metricId": "simulation_speed",
@@ -26,8 +17,18 @@
     "recoveryForSeconds": 120,
     "sourceId": "game-performance-telemetry",
     "sourceName": "Native game performance rule",
-    "component": {"id":"game-performance","parent_id":"your-product","name":"Game performance","kind":"service","critical":false,"fallback_status":"operational","launched":true,"launched_set":true},
-    "alertTitle": "Server is slow — expect lag",
+    "component": {
+      "id": "game-performance",
+      "parent_id": "your-product",
+      "name": "Game performance",
+      "kind": "service",
+      "critical": false,
+      "fallback_status": "operational",
+      "launched": true,
+      "launched_set": true
+    },
+    "alertTitle": "Server is slow \u2014 expect lag",
     "alertSummary": "Simulation speed stayed below the configured threshold. The game is responding, but simulation performance is degraded."
-  }
+  },
+  "adapter": "game-server/space-engineers"
 }

@@ -1,0 +1,12 @@
+{
+  "id": "game-query",
+  "componentId": "game-query-metrics",
+  "adapter": "game-server/steam-query",
+  "host": "127.0.0.1",
+  "queryPort": 27016,
+  "expectedGame": "Space Engineers",
+  "intervalSeconds": 30,
+  "ttlSeconds": 120,
+  "retentionDays": 7,
+  "port": 8791
+}

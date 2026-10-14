@@ -1,31 +1,11 @@
 #!/usr/bin/env python3
 """Optional JSON telemetry collector. Integration/policy are configuration, not core state."""
-import contextlib, base64, email.utils, hashlib, hmac, http.server, json, math, os, secrets, sqlite3, threading, time, urllib.request
-from urllib.parse import urlsplit
+import contextlib, hashlib, hmac, http.server, json, math, os, secrets, sqlite3, threading, time, urllib.request
 
-class NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args): return None
+from providers import collect, configure
 
 def fetch_payload(config):
-    url = config['url']
-    parsed = urlsplit(url)
-    if parsed.scheme != 'https' or parsed.username or parsed.password or parsed.fragment:
-        raise ValueError('Collector requires a credential-free HTTPS URL')
-    headers = {'Accept': 'application/json'}
-    if config.get('auth') == 'vrage-hmac-sha1':
-        key = os.environ[config.get('keyEnv', 'VRAGE_KEY')]
-        path = parsed.path + ('?' + parsed.query if parsed.query else '')
-        nonce = str(secrets.randbelow(2**31))
-        date = email.utils.formatdate(usegmt=True)
-        digest = hmac.new(key.encode(), f'{path}\r\n{nonce}\r\n{date}\r\n'.encode(), hashlib.sha1).digest()
-        headers.update(Date=date, Authorization=nonce + ':' + base64.b64encode(digest).decode())
-    elif config.get('auth', 'none') != 'none':
-        raise ValueError('Unsupported collector authentication')
-    request = urllib.request.Request(url, headers=headers, method='GET')
-    with urllib.request.build_opener(NoRedirect).open(request, timeout=10) as response:
-        body = response.read(65537)
-        if len(body) > 65536: raise ValueError('Telemetry response exceeds limit')
-        return json.loads(body)
+    return collect(config)
 
 def extract(payload, definitions):
     metrics = []
@@ -188,7 +168,8 @@ def handler(store, token):
     return Handler
 
 def main():
-    config=json.load(open(os.environ.get('TELEMETRY_CONFIG','/config/telemetry.json')))
+    with open(os.environ.get('TELEMETRY_CONFIG','/config/telemetry.json')) as source:
+        config=configure(json.load(source))
     if len(config['metrics'])>32: raise ValueError('Too many metric definitions')
     token=os.environ['PULP_BRIDGE_TOKEN']
     store=Store(os.environ.get('TELEMETRY_DB','/data/telemetry.sqlite'),config)

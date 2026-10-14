@@ -2,7 +2,7 @@
 
 Bananapulse remains a generic status engine. Collectors own authentication and field mapping; instance configuration owns metric selection and alert thresholds; existing monitor observations/quorum/incidents and the notification outbox own status and delivery.
 
-`modules/telemetry/collector.py` is an optional standard-library sidecar for HTTPS JSON sources. It supports unauthenticated JSON and VRage HMAC signing. Its config declares numeric metric IDs, labels, units and JSON paths. A different integration can implement the same `telemetry.v1` snapshot contract without adding game-specific fields to the engine.
+`modules/telemetry/collector.py` is an optional standard-library sidecar for HTTPS JSON sources. Its provider registry supports generic HTTPS JSON and an optional game-server module with protocol-specific adapters. Its config declares numeric metric IDs, labels, units and JSON paths. A different integration can implement the same `telemetry.v1` snapshot contract without adding game-specific fields to the engine.
 
 ## Collection and storage
 
@@ -36,3 +36,13 @@ Use a dedicated performance component and source: a game-port observation on the
 
 Rules may also use `direction: "above"`, `above`, and `recoverBelow` for latency-style metrics. Optional `gateComponentId` and `gateSourceId` require a fresh responding availability observation before publishing performance status. Private numeric collection continues during availability failures, while alert dwell timers reset and no competing performance declaration is emitted.
 
+
+## Module and adapter boundary
+
+The optional telemetry runtime owns numeric validation, SQLite retention, freshness, persistent alert dwell, authenticated snapshots and delivery through the existing monitor. It delegates collection to an explicit provider registry. `game_server/` is the game-server module; its `adapters/space_engineers.py` owns VRage signing and server-info field defaults, while `adapters/steam_query.py` owns Steam A2S_INFO and query metric defaults. Neither adapter creates incidents or sends notifications. Instance configuration selects service identity, thresholds and presentation.
+
+Select `adapter: "game-server/space-engineers"`, `adapter: "game-server/steam-query"`, or `adapter: "http-json"`. Game adapters supply allowlisted metric defaults; `metrics` can override those defaults. See `vrage.example.json` and `steam-query.example.json`. Existing configs using `auth: "vrage-hmac-sha1"` keep their identity and fields and select the VRage adapter automatically. Unknown adapters fail closed; configuration cannot load arbitrary Python files. Adding a game means registering its adapter under the game-server module, without changing history, incident or notification owners.
+
+Deploy the entire `modules/telemetry` directory, rather than copying `collector.py` alone. Run `python modules/telemetry/collector.py` with the existing environment variables. Separate adapter instances may share a public service through site composition, but must use separate SQLite files and snapshot ports. A failed adapter poll means unavailable telemetry; the existing availability probe remains responsible for declaring game downtime. Steam split/compressed responses are unsupported and fail collection explicitly. RAM/Prometheus collection is not implemented yet.
+
+Run `python3 -m unittest discover -s modules/telemetry` for adapter dispatch, exact VRage signatures, URL checks, allowlist normalization, policy and persistence tests.
