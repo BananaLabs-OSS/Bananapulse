@@ -6,12 +6,14 @@ interface Props { componentIds: string[] }
 const [modules, histories] = await Promise.all([publicTelemetry(Astro.props.componentIds), publicTelemetryHistory(Astro.props.componentIds)]);
 ---
 {modules.length > 0 && <details class="telemetry-panel" open>
-  <summary>Live stats</summary>
+  <summary class="telemetry-mode-heading">Live stats</summary>
+  <div class="telemetry-live-readings">
   {modules.map(module => module.unavailable ? <p>Performance data temporarily unavailable.</p> : <div>
     <dl>{module.metrics.map(metric => <div><dt>{metric.label}</dt><dd>{formatMetric(metric)}</dd></div>)}</dl>
     {module.metrics.some(metric => metric.unit === 'reported') && <p class="metric-note">Values marked by the provider as reported load are not total host CPU percentages.</p>}
     {module.observedAt && <small>Updated <time datetime={new Date(module.observedAt * 1000).toISOString()}>{new Date(module.observedAt * 1000).toISOString().replace('T', ' ').replace('.000Z', ' UTC')}</time></small>}
   </div>)}
+</div>
 <TelemetryHistory histories={histories} componentIds={Astro.props.componentIds} />
 </details>}
 <style>

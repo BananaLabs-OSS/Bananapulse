@@ -5,7 +5,7 @@ const histories = Astro.props.histories;
 const json = JSON.stringify(histories).replace(/</g, '\\u003c');
 ---
 {histories.length > 0 && <section class="telemetry-history" data-components={Astro.props.componentIds.join(' ')} aria-label="Performance history">
-  <div class="history-heading"><h3>Performance history</h3><label>Period <select class="history-period"><option value="3600">1 hour</option><option value="21600" selected>6 hours</option><option value="86400">24 hours</option><option value="604800">7 days</option></select></label><button class="history-download" type="button">Download CSV</button></div>
+  <div class="history-heading"><h3>Performance history</h3><label>Period <select class="history-period"><option value="live" selected>Live</option><option value="3600">1 hour</option><option value="21600">6 hours</option><option value="86400">24 hours</option><option value="604800">7 days</option></select></label><button class="history-back-live" type="button" hidden>Back to live</button><button class="history-download" type="button">Download CSV</button></div>
   <p class="history-note">Past hour: individual checks. Longer views: 15-minute, hourly or daily averages with minimum–maximum ranges. Gaps mean no recorded samples. All times UTC.</p>
   {histories.some(h => h.unavailable) && <p>Some history is temporarily unavailable. Saved samples below may be incomplete.</p>}
   {histories.some(h => h.truncated) && <p>History reached its response limit; the oldest part of this period may be incomplete.</p>}
@@ -26,6 +26,10 @@ for(const panel of document.querySelectorAll<HTMLElement>('.telemetry-history'))
  const histories:HistoryView[]=JSON.parse(panel.querySelector('.history-data')!.textContent!);
  const incidents:DayIncident[]=JSON.parse(document.getElementById('day-incidents')?.textContent??'[]');
  const componentIds=(panel.dataset.components??'').split(' ').filter(Boolean);
+ const statsPanel=panel.closest('.telemetry-panel')!;
+ const liveReadings=statsPanel.querySelector<HTMLElement>('.telemetry-live-readings')!;
+ const modeHeading=statsPanel.querySelector<HTMLElement>('.telemetry-mode-heading')!;
+ const backLive=panel.querySelector<HTMLButtonElement>('.history-back-live')!;
  const period=panel.querySelector<HTMLSelectElement>('.history-period')!;
  const container=panel.querySelector<HTMLElement>('.history-charts')!;
  const coverage=panel.querySelector<HTMLElement>('.history-coverage')!;
@@ -49,12 +53,15 @@ for(const panel of document.querySelectorAll<HTMLElement>('.telemetry-history'))
  });}
  function pointsFor(start:number,end:number,bucket:number) {return aggregateChartPoints(allPoints.filter(point=>point.at>=start&&point.at<end&&point.at<=Date.now()/1000),bucket);}
  function render() {
-  const now=Date.now()/1000,span=Number(period.value),start=selectedDate ? Date.parse(selectedDate+'T00:00:00Z')/1000:now-span,end=selectedDate ? start+86400:now;
+  const live=!selectedDate && period.value==='live';
+  liveReadings.hidden=!live;backLive.hidden=live;
+  modeHeading.textContent=live ? 'Live stats' : selectedDate ? `${selectedDate} UTC — historical stats` : `${period.selectedOptions[0].textContent} — historical stats`;
+  const now=Date.now()/1000,span=period.value==='live'?3600:Number(period.value),start=selectedDate ? Date.parse(selectedDate+'T00:00:00Z')/1000:now-span,end=selectedDate ? start+86400:now;
   const bucket=selectedDate||span===86400 ? 3600:span===604800 ? 86400:span===21600 ? 900:0;
   current=pointsFor(start,end,bucket);container.replaceChildren();tbody.replaceChildren();
   const selected=selectedDate ? getDay(selectedDate):undefined;
   const times=current.map(point=>point.at);
-  coverage.textContent=selectedDate ? `${selectedDate} UTC · Daily averages and hourly means. Click its uptime bar for the full breakdown.` : `Rolling ${period.selectedOptions[0].textContent} · ${bucket ? bucket===86400?'daily':bucket===3600?'hourly':'15-minute':'individual-check'} values.`;
+  coverage.textContent=selectedDate ? `${selectedDate} UTC · Daily averages and hourly means. Click its uptime bar for the full breakdown.` : `${live ? 'Live view — latest checks' : 'Rolling '+period.selectedOptions[0].textContent} · ${bucket ? bucket===86400?'daily':bucket===3600?'hourly':'15-minute':'individual-check'} values.`;
   if(!times.length)coverage.textContent+=' No recorded samples in this period.';
   const ids=[...new Set(current.map(point=>`${point.moduleId}/${point.metric.id}`))];
   for(const id of ids) {
@@ -109,7 +116,8 @@ for(const panel of document.querySelectorAll<HTMLElement>('.telemetry-history'))
  });
  window.addEventListener('pulse:day-open',event=>{const detail=(event as CustomEvent<{date:string;componentIds:string[]}>).detail;if(handles(detail))openDay(detail.date);});
  window.addEventListener('pulse:hour-hover',event=>{const detail=(event as CustomEvent<{at:number;moduleId:string}>).detail;if(!dialog.open && histories.some(history=>history.id===detail.moduleId) && new Date(detail.at*1000).toISOString().slice(0,10)===selectedDate)inspectHour?.(Math.floor(detail.at/3600)%24);});
- period.addEventListener('change',()=>{selectedDate=undefined;render();});
+ backLive.addEventListener('click',()=>{selectedDate=undefined;inspectHour=undefined;period.value='live';dialog.close();const preview=document.getElementById('daysel');if(preview){preview.hidden=true;preview.replaceChildren();delete preview.dataset.selection;}render();});
+ period.addEventListener('change',()=>{selectedDate=undefined;inspectHour=undefined;const preview=document.getElementById('daysel');if(preview){preview.hidden=true;preview.replaceChildren();delete preview.dataset.selection;}render();});
  panel.querySelector('.history-download')!.addEventListener('click',()=>{
   const quote=(value:unknown)=>'"'+String(value).replace(/"/g,'""')+'"';
   const rows=[['UTC time','Module','Metric','Unit','Value','Minimum','Maximum','Bucket seconds','Recorded checks'],...current.map(point=>[utc(point.at),point.moduleId,point.metric.id,point.metric.unit,point.metric.value,point.metric.min??point.metric.value,point.metric.max??point.metric.value,point.bucket,point.metric.samples??1])];
@@ -120,6 +128,7 @@ for(const panel of document.querySelectorAll<HTMLElement>('.telemetry-history'))
 </script>
 <style>
 :global(.day-metric-preview){margin:1rem 0}:global(.day-metrics){width:100%;font-size:.8rem}:global(.day-metrics th),:global(.day-metrics td){padding:.35rem;text-align:left}:global(.day-hour-preview){display:grid;grid-template-columns:repeat(12,1fr);gap:.25rem;margin:.6rem 0}:global(.day-hour-preview button){padding:.35rem;border:1px solid var(--border,#ccc);border-radius:.3rem;color:inherit;background:transparent;cursor:pointer}:global(.day-hour-preview button[data-state="data"]){border-bottom:3px solid #3b82f6}:global(.day-hour-preview button[data-state="outage"]){border-bottom:3px solid #ef4444}:global(.day-hour-preview button[data-state="degraded"]){border-bottom:3px solid #f59e0b}:global(.day-hour-preview button[data-state="missing"]){opacity:.55}:global(.hour-metric-preview){margin:.8rem 0}:global(.history-day-dialog){box-sizing:border-box;width:min(1150px,94vw);max-height:88vh;border:1px solid var(--border,#aaa);border-radius:.7rem;padding:1.25rem;background:var(--paper,#fff);color:var(--ink,#111)}:global(.history-day-dialog::backdrop){background:rgba(0,0,0,.5)}:global(.day-dialog-heading){display:flex;gap:1rem;align-items:center;justify-content:space-between}:global(.day-dialog-heading h2){margin:.2rem 0 1rem}:global(.history-day-dialog button),:global(.history-day-dialog select),:global(.open-day-breakdown){font:inherit;padding:.4rem .6rem;border:1px solid var(--border,#aaa);border-radius:.4rem;background:transparent;color:inherit;cursor:pointer}:global(.day-hour-table-scroll){overflow:auto;max-height:48vh}:global(.day-hour-breakdown){min-width:750px;width:100%;font-size:.78rem;border-collapse:collapse}:global(.day-hour-breakdown th),:global(.day-hour-breakdown td){padding:.6rem;text-align:left;border-bottom:1px solid var(--border,#ddd)}:global(.day-hour-breakdown thead){position:sticky;top:0;background:var(--paper,#fff)}:global(.hour-incidents a){display:block;margin:.3rem 0;padding-left:.5rem;border-left:3px solid #f59e0b;color:inherit}:global(.hour-incidents a[data-severity="major"]){border-left-color:#ef4444}:global(.day-dialog-chart .history-chart){padding:.8rem;border:1px solid var(--border,#ddd);border-radius:.4rem;margin:1rem 0}:global(.day-dialog-chart svg){width:100%}:global(.day-dialog-chart h4){margin:0}:global(.chart-reference){stroke:currentColor;stroke-dasharray:4 4;opacity:.35}:global(.chart-average-bar){fill:#3b82f6;opacity:.65}:global(.chart-whisker){stroke:currentColor;stroke-width:1.5}:global(.chart-incident){opacity:.12}:global(.day-dialog-chart text){fill:currentColor;font-size:10px}:global(.day-dialog-chart .chart-grid){stroke:currentColor;opacity:.12}:global(.day-dialog-chart .chart-line){fill:none;stroke:#3b82f6;stroke-width:2}:global(.day-dialog-chart .chart-band){fill:#3b82f6;opacity:.18}:global(.day-dialog-chart .chart-dot){fill:#3b82f6}:global(.day-dialog-chart .chart-cursor){stroke:currentColor;stroke-dasharray:3 3;opacity:.6}
+.history-back-live[hidden]{display:none}
 .telemetry-history{margin-top:1.5rem;border-top:1px solid var(--border,#ddd);padding-top:1rem}.history-heading{display:flex;align-items:center;gap:1rem;flex-wrap:wrap}.history-heading h3{margin:0 auto 0 0}.history-heading select,.history-heading button{font:inherit;padding:.4rem .6rem;border:1px solid var(--border,#aaa);border-radius:.4rem;background:var(--bg,transparent);color:inherit}.history-note,.history-coverage{font-size:.8rem;opacity:.75}.history-charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:1rem}.history-charts :global(.history-chart){min-width:0;padding:.8rem;border:1px solid var(--border,#ddd);border-radius:.5rem}.history-charts :global(h4){margin:0 0 .4rem}.history-charts :global(svg){width:100%;color:inherit;touch-action:pan-y}.history-charts :global(text){fill:currentColor;font-size:10px}.history-charts :global(.chart-grid){stroke:currentColor;opacity:.12}.history-charts :global(.chart-line){fill:none;stroke:#3b82f6;stroke-width:2}.history-charts :global(.chart-dot){fill:#3b82f6}.history-charts :global(.chart-band){fill:#3b82f6;opacity:.18}.history-charts :global(.chart-cursor){stroke:currentColor;stroke-dasharray:3 3;opacity:.6}.history-charts :global(.chart-summary),.history-charts :global(.chart-detail){font-size:.75rem;margin:.4rem 0;min-height:2.2em}.history-table{margin-top:1rem}.history-table-scroll{overflow:auto;max-height:25rem}table{width:100%;font-size:.8rem;border-collapse:collapse}th,td{padding:.4rem;text-align:left;border-bottom:1px solid var(--border,#ddd)}
 @media(max-width:600px){:global(.day-hour-preview){grid-template-columns:repeat(6,1fr)}:global(.day-hour-preview button){min-height:44px}:global(.history-day-dialog){padding:.8rem}}
 </style>
