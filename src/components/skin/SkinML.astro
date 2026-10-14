@@ -277,6 +277,9 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
     const panel = document.getElementById('daysel');
     if (!panel) return;
     const title = barEl.getAttribute('title') || '';
+    const selection = `${title}|${barsEl.getAttribute('data-sub') || ''}`;
+    if (!(panel as HTMLElement).hidden && panel.dataset.selection === selection) return;
+    panel.dataset.selection = selection;
     const hits = matchesFor(barEl, barsEl);
     panel.innerHTML = `<div class="seclbl">${esc(title)}</div>` +
       (hits.length
@@ -332,7 +335,15 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
   // the mouse LEAVES the strip so the page returns to its normal state instead
   // of leaving the last-hovered day's card stuck on screen (the "I have to
   // refresh to get it proper" bug). Touch taps deliberately keep the panel.
-  const clearPanel = () => { const p = document.getElementById('daysel') as HTMLElement | null; if (p) { p.hidden = true; p.innerHTML = ''; } };
+  let panelClearTimer: number | undefined;
+  const cancelPanelClear = () => { if (panelClearTimer !== undefined) window.clearTimeout(panelClearTimer); panelClearTimer = undefined; };
+  const clearPanel = () => { cancelPanelClear(); const p = document.getElementById('daysel') as HTMLElement | null; if (p) { p.hidden = true; p.innerHTML = ''; delete p.dataset.selection; } };
+  const schedulePanelClear = () => { cancelPanelClear(); panelClearTimer = window.setTimeout(clearPanel, 600); };
+  const dayPanel = document.getElementById('daysel');
+  dayPanel?.addEventListener('pointerenter', cancelPanelClear);
+  dayPanel?.addEventListener('focusin', cancelPanelClear);
+  dayPanel?.addEventListener('pointerleave', schedulePanelClear);
+  dayPanel?.addEventListener('focusout', (e) => { if (!dayPanel.contains((e as FocusEvent).relatedTarget as Node | null)) schedulePanelClear(); });
 
   document.querySelectorAll('.upwrap .bars').forEach((bars) => {
     let active = false;
@@ -362,13 +373,13 @@ function barTitle(dayStatus: string, idx: number, len: number): string {
     });
     bars.addEventListener('pointermove', (e) => {
       const pe = e as PointerEvent;
-      if (active || pe.pointerType === 'mouse') showLoupe(bars, pe.clientX, pe.clientY);
+      if (active || pe.pointerType === 'mouse') { cancelPanelClear(); showLoupe(bars, pe.clientX, pe.clientY); }
     });
     const end = () => { active = false; hideLoupe(); };
-    bars.addEventListener('focusout', (e) => { if (!bars.contains((e as FocusEvent).relatedTarget as Node | null)) { hideLoupe(); clearPanel(); } });
+    bars.addEventListener('focusout', (e) => { if (!bars.contains((e as FocusEvent).relatedTarget as Node | null) && !dayPanel?.contains((e as FocusEvent).relatedTarget as Node | null)) { hideLoupe(); schedulePanelClear(); } });
     bars.addEventListener('pointerup', end);
     bars.addEventListener('pointercancel', end);
-    bars.addEventListener('pointerleave', (e) => { if ((e as PointerEvent).pointerType === 'mouse') { hideLoupe(); clearPanel(); } });
+    bars.addEventListener('pointerleave', (e) => { if ((e as PointerEvent).pointerType === 'mouse') { hideLoupe(); schedulePanelClear(); } });
     bars.addEventListener('click', (e) => {
       if (bars.closest('a')) return; // child rows are drill-in links; only the main strip opens the day card
       const { spans, idx } = nearest(bars, (e as MouseEvent).clientX);
