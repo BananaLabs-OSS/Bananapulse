@@ -22,7 +22,7 @@
     "@astrojs/node": "^11.1.8",
     "astro": "^7.4.0",
     "drizzle-orm": "^0.45.4",
-    "nanoid": "^5.1.16",
+    "nanoid": "^6.0.2",
     "postgres": "^3.4.9"
   },
   "devDependencies": {
