@@ -3,7 +3,6 @@ import { subscribers } from '@/db/schema';
 import { eq, isNotNull } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { sendConfirmationEmail } from './email';
-import { STATUS_DOMAIN } from '@/pulse.config';
 
 export async function addSubscriber(email: string, confirmBaseUrl: string) {
   const normalized = email.toLowerCase().trim();
