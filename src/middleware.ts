@@ -1,6 +1,6 @@
 import { defineMiddleware } from 'astro:middleware';
 import { resolveScope } from './lib/scope';
-import { verifyCookie, COOKIE_NAME, validateSessionWithOwner } from './lib/admin-auth';
+import { verifyCookie, COOKIE_NAME, validateSession, validateSessionWithOwner } from './lib/admin-auth';
 import { pulpOwnerRouteFamilyConfigured } from './lib/pulp-bridge';
 import { SCOPES, UMBRELLA_ID } from './pulse.config';
 
@@ -48,7 +48,7 @@ export const onRequest = defineMiddleware(async ({ request, locals, url, cookies
     // validation, because that would re-authorize a revoked owner session.
     const email = pulpOwnerRouteFamilyConfigured('auth')
       ? await validateSessionWithOwner(sessionId)
-      : await (await import('./lib/admin-auth')).validateSession(sessionId);
+      : await validateSession(sessionId);
     if (!email) {
       cookies.delete(COOKIE_NAME, { path: '/' });
       return redirect('/admin/login');

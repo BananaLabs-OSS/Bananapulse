@@ -29,13 +29,6 @@ function mapStatus(s: string): ServiceStatus {
     default: return 'operational';
   }
 }
-// 90-day uptime history for a component (the stored day-status array) + the
-// reliability % over the days that actually have data ('future'/no-data excluded;
-// 'degraded' still counts as available — only 'out' is downtime).
-function uptimeArr(c: { uptime90d?: unknown } | undefined): string[] {
-  const a = c?.uptime90d;
-  return Array.isArray(a) ? (a as string[]) : [];
-}
 // Normalize stored uptime into a 90-day CALENDAR window ending TODAY. Entries are
 // real `{date, status}` objects (written by the ingest adapters); each is placed on
 // its actual calendar day, every other day is 'future' (= no data, grey). NO invented
