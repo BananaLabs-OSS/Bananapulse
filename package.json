@@ -18,18 +18,18 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@astrojs/netlify": "^8.2.4",
-    "@astrojs/node": "^11.1.4",
-    "astro": "^7.2.9",
-    "drizzle-orm": "^0.45.2",
+    "@astrojs/netlify": "^8.2.10",
+    "@astrojs/node": "^11.1.8",
+    "astro": "^7.4.0",
+    "drizzle-orm": "^0.45.4",
     "nanoid": "^5.1.16",
-    "postgres": "^3.4.5"
+    "postgres": "^3.4.9"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
     "@types/node": "^22.0.0",
-    "drizzle-kit": "^0.30.0",
+    "drizzle-kit": "^0.31.11",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   }
 }

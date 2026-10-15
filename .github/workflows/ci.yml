@@ -23,6 +23,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Reject critical dependency advisories
+        run: npm audit --audit-level=critical
       - run: npm test
       - run: npm run check
       - run: npm run build
