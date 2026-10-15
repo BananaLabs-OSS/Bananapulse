@@ -23,11 +23,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Reject critical dependency advisories
-        run: npm audit --audit-level=critical
+      - name: Reject dependency advisories
+        run: npm audit --audit-level=low
       - run: npm test
       - run: npm run check
       - run: npm run build
+      - run: npm run build:local
+      - run: npx drizzle-kit check
 
   application:
     uses: BananaLabs-OSS/.github/.github/workflows/go-ci.yml@a4b55e64f0ce6de94eddb45f13a57b3458f6f9bb

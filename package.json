@@ -31,5 +31,13 @@
     "drizzle-kit": "^0.31.11",
     "typescript": "^5.9.3",
     "vitest": "^4.1.12"
+  },
+  "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "0.25.12"
+    },
+    "braces": "https://github.com/BananaLabs-OSS/braces/archive/592c3bbdc48ed54a8b35c46995a4fe4ed00878dc.tar.gz",
+    "node-forge": "https://github.com/BananaLabs-OSS/forge/archive/d2251dd85aa159e7b21b7b8bd5a7b4b41a1b220a.tar.gz",
+    "sharp": "0.35.5"
   }
 }
