@@ -27,7 +27,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.4",
-    "@types/node": "^22.0.0",
+    "@types/node": "^26.6.5",
     "drizzle-kit": "^0.31.11",
     "typescript": "^5.9.3",
     "vitest": "^4.1.12"
