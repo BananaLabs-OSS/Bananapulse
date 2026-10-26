@@ -30,7 +30,7 @@
     "@types/node": "^22.0.0",
     "drizzle-kit": "^0.31.11",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.12"
+    "vitest": "^5.0.4"
   },
   "overrides": {
     "@esbuild-kit/core-utils": {
